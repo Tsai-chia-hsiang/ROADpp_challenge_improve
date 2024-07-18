@@ -1,0 +1,7 @@
+path: '/datasets/roadpp/two_branch/major_class'
+train: 'train'
+val: 'valid'
+
+names: 
+  0: 'Ped'
+  1: 'Car'
