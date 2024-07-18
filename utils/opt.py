@@ -5,7 +5,8 @@ def arg_parse():
 
     parser.add_argument('--mode', type=str, default='Track1', help='detect mode, only accept Track1 or Track2')
     parser.add_argument('--video_path', type=str, default='/mnt/datasets/roadpp/videos', help='video path')
-    parser.add_argument('--yolo_path', type=str, default='runs/detect/yolov8l_T1_1280_batch_8_/weights/best.pt', help='yolo path')
+    parser.add_argument('--detector', type=str, default="yolo")
+    parser.add_argument('--model_path', type=str, default='runs/detect/yolov8l_T1_1280_batch_8_/weights/best.pt', help='yolo path')
 
 
     parser.add_argument('--two_branch', type=bool, default=False, help='used two branch YOLO')
@@ -30,6 +31,7 @@ def arg_parse():
     
 
     opt = parser.parse_args()
+    print(opt)
     return opt
 
 if __name__ == '__main__':
