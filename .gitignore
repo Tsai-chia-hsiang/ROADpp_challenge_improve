@@ -6,7 +6,7 @@ roadpp
 *.pkl
 # vscode
 .vscode
-
+*ckpt*
 # test
 test*
 
