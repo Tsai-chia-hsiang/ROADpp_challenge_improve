@@ -5,8 +5,8 @@ import torch
 import pickle
 import numpy as np
 from tqdm import tqdm
-from ultralytics import YOLO
-
+from ultralytics import YOLO, RTDETR
+from tqdm import tqdm
 from Track2.dataset import Tracklet_Dataset
 from utils.opt import arg_parse
 from utils.linear_interpolation import tube_interpolation
@@ -58,11 +58,14 @@ def make_tube(args):
     frame_num = 0
     
     # Tracker.boxes.data(Tensor): x1, y1, x2, y2, track_id, conf, label_id
-    for t in args.tracker:
+    for t in tqdm(args.tracker):
         frame_num += 1
         if t.boxes.is_track:
             frame_img = t.orig_img
-            global_img = cv2.resize(cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB), args.t2_input_shape)
+            global_img = cv2.resize(
+                cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB), 
+                args.t2_input_shape
+            )
 
             for b in t.boxes.data:
                 x1, y1, x2, y2, track_id, conf, label_id = b
@@ -70,7 +73,9 @@ def make_tube(args):
                 # Convert tensor values to Python scalars
                 x1, y1, x2, y2, track_id, conf, label_id = (
                     x1.item(), y1.item(), x2.item(), y2.item(),
-                    int(track_id.item()), conf.item(), int(label_id.item())
+                    int(track_id.item()), 
+                    conf.item(), 
+                    int(label_id.item())
                 )
 
                 x1, y1 = out_of_range(x1, y1, t.orig_shape[1], t.orig_shape[0])
@@ -243,13 +248,16 @@ def two_branch_yolo(args, video):
     Args:
         video: video path.
     """
+
     args.tracker = args.major_yolo.track(
         source=video,
         imgsz=args.imgsz,
         device=args.devices,
         stream=True,
-        conf = 0.0
+        conf=0.0,
+        verbose=False
     )
+    print("major tracking")
     major_tube = make_tube(args)
 
     args.tracker = args.rare_yolo.track(
@@ -257,15 +265,17 @@ def two_branch_yolo(args, video):
         imgsz=args.imgsz,
         device=args.devices,
         stream=True,
-        conf = 0.0
+        conf=0.0,
+        verbose=False
     )
+    print("rare tracking")
     rare_tube = make_tube(args)
 
     args.tube['agent'][args.video_name] = merge_two_tube(args, major_tube, rare_tube)
 
     return 0
 
-
+@torch.no_grad()
 def main(args):
     """
         Args: see utils/opt.py
@@ -293,7 +303,8 @@ def main(args):
                 imgsz=args.imgsz,
                 device=args.devices,
                 stream=True,
-                conf = 0.0
+                conf = 0.0,
+                verbose=False
             )
 
             make_tube(args)
@@ -315,30 +326,39 @@ def main(args):
             pickle.dump(args.tube, f)
 
 
+def check_cuda():
+    try:
+        if torch.cuda.is_available():
+            print("CUDA is available!")
+            device = torch.device("cuda:0")
+            print(f"Using device: {device}")
+            properties = torch.cuda.get_device_properties(device)
+            print(f"Device Name: {properties.name}")
+            print(f"Total Memory: {properties.total_memory}")
+        else:
+            print("CUDA is not available")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
 if __name__ == '__main__':
     args = arg_parse()
     assert args.mode == 'Track1' or args.mode == 'Track2', 'detect mode only accept "Track1" or "Track2".'
+    detector = {
+        "yolo":YOLO,
+        "rtdetr":RTDETR
+    } 
 
-    # # debug_args:
-    # args.devices = '0'
-    # args.mode = 'Track1'
-    # args.pkl_name = 'T1_Train_1920.pkl'
-    # args.video_path = '/mnt/Dataset/roadpp/videos'
-    # args.yolo_path = '/home/Ricky/ROADpp_challenge_ICCV2023/runs/detect/yolov8l_T1_1920_batch_8_/weights/best.pt'
-    # args.imgsz = 1920
-    # args.save_res = True
-    
-    # # two branch args:
-    # args.two_branch = False
-    # args.major_path = '/home/Ricky/0_Project/ROADpp_challenge_ICCV2023/runs/detect/yolov8l_major_1920_batch_8_/weights/last.pt'
-    # args.rare_path = '/home/Ricky/0_Project/ROADpp_challenge_ICCV2023/runs/detect/yolov8l_rare_1920_batch_8_/weights/last.pt'
-
+    print(args.detector)
     if args.two_branch:
-        args.major_yolo = YOLO(args.major_path)
-        args.rare_yolo = YOLO(args.rare_path)
+        
+        args.major_yolo = detector[args.detector](args.major_path)
+        args.rare_yolo = detector[args.detector](args.rare_path)
         args.imgsz = 1920
+    
     else:
-        args.yolo = YOLO(args.yolo_path)
+        args.yolo = detector[args.detector](args.model_path)
+        
     
     if args.mode == 'Track2':
         args.action_detector = torch.load(args.action_detector_path)
@@ -346,5 +366,6 @@ if __name__ == '__main__':
 
         args.loc_detector = torch.load(args.loc_detector_path)
         args.loc_detector.eval()
-    
+    check_cuda()
+
     main(args)
