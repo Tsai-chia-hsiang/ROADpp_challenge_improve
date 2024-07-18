@@ -15,7 +15,7 @@ MODEL_MAP = {
     'rtdetr':RTDETR
 }
 
-def build_ulramodel(arch:str):
+def build_ulra_model(arch:str):
     backbone = None
     if 'yolo' in arch:
         backbone = 'yolo'
@@ -173,7 +173,7 @@ epochs = 50, imgsz = 1280, batch = 5,
 
 def main():
     model_arch, args, train_args = parse_cmd_args()
-    ultra_model = build_ulramodel(arch=model_arch)
+    ultra_model = build_ulra_model(arch=model_arch)
     train_ultra_model(
         ultra_model=ultra_model, 
         data_cfg=args["data_config"], 
