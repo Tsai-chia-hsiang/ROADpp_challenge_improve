@@ -7,6 +7,8 @@ import logging
 import itertools
 import numpy as np
 import pandas as pd
+import torch.utils
+import torch.utils.data
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
