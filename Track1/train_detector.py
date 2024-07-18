@@ -15,7 +15,7 @@ MODEL_MAP = {
     'rtdetr':RTDETR
 }
 
-def build_ulra_model(arch:str):
+def get_general_pretrained_ulra_model(arch:str):
     backbone = None
     if 'yolo' in arch:
         backbone = 'yolo'
@@ -129,8 +129,8 @@ def parse_cmd_args()->tuple[str, dict, dict]:
     
     return model_arch, path_args, train_args
     
-def resume(last_ckpt:str, backbone:type[Model]=YOLO):
-    ultra_model = backbone(last_ckpt)
+def resume(last_ckpt:str, arch:Literal["yolo", 'rtdetr']):
+    ultra_model:Model = MODEL_MAP[arch](last_ckpt)
     ultra_model.train(resume=True)
 
 def train_ultra_model(ultra_model:Model, data_cfg:os.PathLike, name:str, project:os.PathLike="ckpt", **train_args):
@@ -173,7 +173,7 @@ epochs = 50, imgsz = 1280, batch = 5,
 
 def main():
     model_arch, args, train_args = parse_cmd_args()
-    ultra_model = build_ulra_model(arch=model_arch)
+    ultra_model = get_general_pretrained_ulra_model(arch=model_arch)
     train_ultra_model(
         ultra_model=ultra_model, 
         data_cfg=args["data_config"], 
