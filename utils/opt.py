@@ -4,7 +4,7 @@ def arg_parse():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--mode', type=str, default='Track1', help='detect mode, only accept Track1 or Track2')
-    parser.add_argument('--video_path', type=str, default='/mnt/datasets/roadpp/videos', help='video path')
+    parser.add_argument('--video_path', type=str, default='roadpp/videos', help='video path')
     parser.add_argument('--detector', type=str, default="yolo")
     parser.add_argument('--model_path', type=str, default='runs/detect/yolov8l_T1_1280_batch_8_/weights/best.pt', help='yolo path')
 
@@ -20,8 +20,7 @@ def arg_parse():
     parser.add_argument('--submit_shape', type=tuple, default=(600, 840), help='final submit shape')
 
     parser.add_argument('--pkl_name', type=str, default='T1_train_all.pkl', help='submit file name(*.pkl)')
-    parser.add_argument('--save_res', type=bool, default=False, help='save submit file')
-
+ 
     # track2
     parser.add_argument('--action_detector_path', type=str, default='runs/action/best_weight.pt', help='action_detector_path')
     parser.add_argument('--loc_detector_path', type=str, default='runs/location/best_weight.pt', help='loc_detector_path')

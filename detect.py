@@ -317,13 +317,8 @@ def main(args):
         # with open(args.pkl_name, 'wb') as f:
         #     pickle.dump(args.tube, f)
 
-
-    if args.save_res:
-        if os.path.exists(args.pkl_name):
-            os.remove(args.pkl_name)
-
-        with open(args.pkl_name, 'wb') as f:
-            pickle.dump(args.tube, f)
+    with open(args.pkl_name, 'wb') as f:
+        pickle.dump(args.tube, f)
 
 
 def check_cuda():
