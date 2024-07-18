@@ -1,4 +1,4 @@
-path: '/datasets/roadpp/two_branch_yolo/major_class'
+path: '/datasets/roadpp/two_branch/major_class'
 train: 'train'
 val: 'valid'
 

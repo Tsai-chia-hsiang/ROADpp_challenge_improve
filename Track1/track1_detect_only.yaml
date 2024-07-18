@@ -1,0 +1,6 @@
+path: '/home/tch/ROADpp_challenge_improve/roadpp/detect_only'
+train: 'train'
+val: 'valid'
+
+names: 
+  0: obj

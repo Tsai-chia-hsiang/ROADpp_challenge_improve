@@ -1,4 +1,4 @@
-path: '/datasets/roadpp/two_branch_yolo/rare_class'
+path: '/datasets/roadpp/two_branch/rare_class'
 train: 'train'
 val: 'valid'
 
