@@ -21,7 +21,7 @@ def out_of_range(x, y, max_x, max_y):
     y = min(max(y, 0), max_y)
     return x, y
 
-
+@torch.no_grad()
 def make_tube(args):
     """
     Make submit tube using track algorithm.
@@ -58,7 +58,7 @@ def make_tube(args):
     frame_num = 0
     
     # Tracker.boxes.data(Tensor): x1, y1, x2, y2, track_id, conf, label_id
-    for t in tqdm(args.tracker):
+    for t in args.tracker:
         frame_num += 1
         if t.boxes.is_track:
             frame_img = t.orig_img
@@ -275,7 +275,6 @@ def two_branch_yolo(args, video):
 
     return 0
 
-@torch.no_grad()
 def main(args):
     """
         Args: see utils/opt.py
@@ -290,8 +289,8 @@ def main(args):
         args.tube = {
             'agent': {}
         }
-
-    for v in sorted(glob.glob(os.path.join(args.video_path, '*.mp4'))):
+    all_vs = sorted(glob.glob(os.path.join(args.video_path, '*.mp4')))
+    for idx, v in enumerate(tqdm(all_vs)):
         args.video_name = v.split('/')[-1].split('.')[0]
         
         if args.two_branch:
