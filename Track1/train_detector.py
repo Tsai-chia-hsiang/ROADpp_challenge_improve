@@ -69,14 +69,14 @@ def parse_cmd_args()->tuple[str, dict, dict]:
 
     #path 
     parser.add_argument("--project", type=Path, default="./ckpt")
-    parser.add_argument("--data_config", type=Path, default="Track1/configs/track1.yaml")
+    parser.add_argument("--data_config", type=Path, default="./configs/track1.yaml")
     parser.add_argument("--name", type=str, default="")
 
     # hyperparameterss
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--lr0", type=float, default=1e-2)
     parser.add_argument("--patience", type=int, default=-1)
-    parser.add_argument("--batch", type=int, default=5)
+    parser.add_argument("--batch", type=int, default=3)
     parser.add_argument("--optimizer", type=str, default="")
     parser.add_argument("--no_deterministic", action='store_false')
     parser.add_argument("--imgsz",type=int, default=1280)
