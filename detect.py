@@ -1,4 +1,10 @@
 import os
+import shutil
+
+import sys
+sys.path.append('./Track2')
+import argparse
+from pathlib import Path
 import cv2
 import glob
 import torch
@@ -8,12 +14,9 @@ from tqdm import tqdm
 from ultralytics import YOLO, RTDETR
 from tqdm import tqdm
 from Track2.dataset import Tracklet_Dataset
-from utils.opt import arg_parse
+from utils.tube_processing import zip_tube_file
 from utils.linear_interpolation import tube_interpolation
 from utils.tube_processing import tube_change_axis, action_tube_padding, combine_label, stack_imgs_padding
-
-import sys
-sys.path.append('./Track2')
 
 
 def out_of_range(x, y, max_x, max_y):
@@ -279,7 +282,7 @@ def main(args):
     """
         Args: see utils/opt.py
     """
-
+    
     if args.mode == 'Track2':
         args.tube = {
             'agent': {},
@@ -315,10 +318,14 @@ def main(args):
         # # debug for one video
         # with open(args.pkl_name, 'wb') as f:
         #     pickle.dump(args.tube, f)
-
-    with open(args.pkl_name, 'wb') as f:
+    
+    tube_file_name = Path(args.pkl_dir)/f"{args.pkl_dir.parts[-1]}_tubes.pkl"
+    print(f"writing {tube_file_name} ..")
+    with open(tube_file_name, 'wb+') as f:
         pickle.dump(args.tube, f)
-
+    print("zipping ..")
+    zip_tube_file(file_path=tube_file_name)
+  
 
 def check_cuda():
     try:
@@ -334,23 +341,59 @@ def check_cuda():
     except Exception as e:
         print(f"An error occurred: {e}")
 
+def arg_parse():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--mode', type=str, default='Track1', help='detect mode, only accept Track1 or Track2')
+    parser.add_argument('--video_path', type=str, default='./roadpp/test_videos', help='video path')
+    parser.add_argument('--detector', type=str, default="yolo")
+    parser.add_argument('--model_path', type=str, default='runs/detect/yolov8l_T1_1280_batch_8_/weights/best.pt', help='yolo path')
+
+
+    parser.add_argument('--two_branch', type=bool, default=False, help='used two branch YOLO')
+    parser.add_argument('--major_path', type=str, default='runs/detect/yolov8l_T1_1280_batch_8_/weights/best.pt', help='major_yolo path')
+    parser.add_argument('--rare_path', type=str, default='runs/detect/yolov8l_T1_1280_batch_8_/weights/best.pt', help='rare_yolo path')
+
+    parser.add_argument('--devices', nargs='+', type=str, default='0', help='gpu number')
+
+    parser.add_argument('--imgsz', type=tuple, default=(1280, 1280), help='yolo input size')
+    parser.add_argument('--video_shape', type=tuple, default=(1280, 1920), help='original video resolution')
+    parser.add_argument('--submit_shape', type=tuple, default=(600, 840), help='final submit shape')
+
+    parser.add_argument('--pkl_dir', type=Path, default=Path("./roadpp/submit"), help='submit file name(*.pkl)')
+ 
+    # track2
+    parser.add_argument('--action_detector_path', type=str, default='runs/action/best_weight.pt', help='action_detector_path')
+    parser.add_argument('--loc_detector_path', type=str, default='runs/location/best_weight.pt', help='loc_detector_path')
+
+    parser.add_argument('--t2_input_shape', type=tuple, default=(224, 224), help='t2_input_shape')
+    parser.add_argument('--windows_size', type=int, default=4, help='sliding windows shape')
+    
+
+    opt = parser.parse_args()
+    print(opt)
+    return opt
 
 if __name__ == '__main__':
+    
     args = arg_parse()
-    assert args.mode == 'Track1' or args.mode == 'Track2', 'detect mode only accept "Track1" or "Track2".'
-    detector = {
-        "yolo":YOLO,
-        "rtdetr":RTDETR
-    } 
+    assert args.mode == 'Track1' or args.mode == 'Track2',\
+        'detect mode only accept "Track1" or "Track2".'
+    
+    args.pkl_dir.mkdir(parents=True, exist_ok=True)
+    
+    detector = {"yolo":YOLO,"rtdetr":RTDETR} 
 
     print(args.detector)
     if args.two_branch:
-        
+        shutil.copy(args.major_path, args.pkl_dir/f"{args.detector}_major.pt")
         args.major_yolo = detector[args.detector](args.major_path)
+        shutil.copy(args.rare_path, args.pkl_dir/f"{args.detector}_rare.pt")
         args.rare_yolo = detector[args.detector](args.rare_path)
         args.imgsz = 1920
     
     else:
+        shutil.copy(args.rare_path, args.pkl_dir/f"{args.detector}.pt")
         args.yolo = detector[args.detector](args.model_path)
         
     
@@ -360,6 +403,6 @@ if __name__ == '__main__':
 
         args.loc_detector = torch.load(args.loc_detector_path)
         args.loc_detector.eval()
+    
     check_cuda()
-
     main(args)

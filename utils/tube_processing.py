@@ -1,6 +1,9 @@
 import pickle
+import os
+from pathlib import Path
+import os.path as osp
 import numpy as np
-
+import zipfile
 
 def switch_action_labels(action_id):
     if action_id == 5 or action_id == 6 or action_id == 16:
@@ -89,36 +92,14 @@ def stack_imgs_padding(stack_imgs):
         return stack_imgs    
 
 
+def zip_tube_file(file_path:Path):
+
+    zip_path = file_path.parent/f"{file_path.stem}.zip"
+    
+    with zipfile.ZipFile(zip_path, 'w') as zipf:
+        # Add the file to the zip archive
+        zipf.write(file_path,file_path.name)
+
+
 if __name__ == '__main__':
-    # ori_w, ori_h = 1920, 1280
-    # new_w, new_h = 840, 600
-    
-    # # change pkl axis
-    # pkl_file = '/home/Ricky/0_Project/ROADpp_challenge_ICCV2023/T1_train_840.pkl'
-    # with open(pkl_file, 'rb') as f:
-    #     pkl_tube = pickle.load(f)
-    
-    # pkl_tube['agent'] = pkl_change_axis(pkl_tube['agent'], ori_w, ori_h, new_w, new_h)
-    
-    # new_pkl = 'T1_train_840.pkl'
-    # with open(new_pkl, 'wb') as f:
-    #     pickle.dump(pkl_tube, f)
-    
-    # # debug for idx
-    # idx = combine_label(0, 3, 8)
-    # print(idx)
-    
-    # debug for bbox
-    # bbox = np.array([256, 256, 512, 512])
-    # bbox = bbox_normalized(bbox, img_w, img_h)
-    # print(bbox)
-    # bbox = norm_box_into_absolute(bbox, img_w, img_h)
-    # print(bbox)
-
-    action_cls = [1]
-    prev_frames = 2
-    last_frames = 1
-    frames_len = 3
-
-    result = action_tube_padding(action_cls, prev_frames, last_frames, frames_len)
-    print(result)
+    zip_tube_file(Path("../roadpp/submit_file/t1_rtdetr_v3.pkl"))

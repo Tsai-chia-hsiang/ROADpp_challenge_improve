@@ -15,7 +15,7 @@ MODEL_MAP = {
     'rtdetr':RTDETR
 }
 
-def get_general_pretrained_ulra_model(arch:str):
+def get_pretrained_ulra_model(arch:str, ckpt:Path=None)->Model:
     backbone = None
     if 'yolo' in arch:
         backbone = 'yolo'
@@ -24,7 +24,38 @@ def get_general_pretrained_ulra_model(arch:str):
     else:
         raise KeyError("Not support this arch")
     
-    return MODEL_MAP[backbone](arch)
+    if ckpt is not None:
+        assert osp.exists(ckpt)
+    
+    return MODEL_MAP[backbone](arch if ckpt is None else ckpt)
+ 
+def train_ultra_model(ultra_model:Model, data_cfg:os.PathLike, name:str, project:os.PathLike="ckpt", **train_args):
+   
+    model_dir = Path(project)/name
+    if model_dir.is_dir():
+        print(f"rm {model_dir}")
+        shutil.rmtree(model_dir)
+    time.sleep(2)
+
+    ultra_model.train(
+        data=data_cfg, mode="detect",project=project, name=name,
+        **train_args
+    )
+
+@torch.no_grad()
+def val_ultra_model(ultra_model:Model, data_cfg:os.PathLike, name:os.PathLike, imgsz:int=1280, batch:int=5, device:int|list[int]=0):
+    """
+    TODO : intergrate it into pipeline
+    """
+    results = ultra_model.val(
+        data = data_cfg,
+        imgsz = imgsz,
+        device = device,
+        batch = batch,
+        name = name
+    )
+    print(results)
+
 
 def parse_cmd_args()->tuple[str, dict, dict]:
     
@@ -127,8 +158,6 @@ def parse_cmd_args()->tuple[str, dict, dict]:
 
         elif k == "deterministic":
             train_args[k] = args["no_deterministic"]
-            if "rtdetr" in model_arch:
-                train_args[k] = False
 
     
     check = confirm(
@@ -141,71 +170,25 @@ def parse_cmd_args()->tuple[str, dict, dict]:
         sys.exit(0)
     
     return model_arch, path_args, train_args
-    
-def resume(last_ckpt:str, arch:Literal["yolo", 'rtdetr']):
-    print(f"{arch} <- {last_ckpt}")
-    ultra_model:Model = MODEL_MAP[arch](last_ckpt)
-    ultra_model.train(resume=True)
-
-def train_ultra_model(ultra_model:Model, data_cfg:os.PathLike, name:str, project:os.PathLike="ckpt", **train_args):
    
-    model_dir = Path(project)/name
-    if model_dir.is_dir():
-        print(f"rm {model_dir}")
-        shutil.rmtree(model_dir)
-    
-    
-    time.sleep(2)
-
-    ultra_model.train(
-        data=data_cfg, mode="detect",project=project, name=name,
-        **train_args
-    )
- 
-def val_ultra_model(ultra_model:Model, data_cfg:os.PathLike, name:os.PathLike, imgsz:int=1280, batch:int=5, device:int|list[int]=0):
-    results = ultra_model.val(
-        data = data_cfg,
-        imgsz = imgsz,
-        device = device,
-        batch = batch,
-        name = name
-    )
-    print(results)
-
-
-"""
-model = RTDETR("rtdetr-l.pt")
-    
-epochs = 50, imgsz = 1280, batch = 5,
-        deterministic=False,
-        single_cls=single_cls,
-        amp=False, 
-        patience = 30, optimizer="AdamW", 
-        lr0=0.007
-
-"""
-
 def main():
+
     model_arch, args, train_args = parse_cmd_args()
-    ultra_model = None
-    if args['resume']:
-        ckpt = Path(args['project'])/args['name']/"weights"/"last.pt"
-        a = ""
-        if 'yolo' in model_arch:
-            a = 'yolo'
-        elif 'rtdetr' in model_arch:
-            a = 'rtdetr'
-        
-        resume(last_ckpt=ckpt, arch=a)    
-        return 
     
-    ultra_model = get_general_pretrained_ulra_model(arch=model_arch)
-    train_ultra_model(
-        ultra_model=ultra_model, 
-        data_cfg=args["data_config"], 
-        name=args['name'], project=args['project'],
-        **train_args
+    ultra_model = get_pretrained_ulra_model(
+        arch = model_arch, 
+        ckpt = None if not args['resume'] \
+            else Path(args['project'])/args['name']/"weights"/"last.pt"
     )
+    if args['resume']:
+        ultra_model.train(resume=True)
+    else:
+        train_ultra_model(
+            ultra_model = ultra_model, 
+            data_cfg = args["data_config"], 
+            project = args['project'], name = args['name'],
+            **train_args
+        )
     
 
 if __name__ == "__main__":
