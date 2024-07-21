@@ -69,7 +69,7 @@ def parse_cmd_args()->tuple[str, dict, dict]:
 
     #path 
     parser.add_argument("--project", type=Path, default="./ckpt")
-    parser.add_argument("--data_config", type=Path, default="Track1/configs/track1.yaml")
+    parser.add_argument("--data_config", type=Path, default="./configs/track1.yaml")
     parser.add_argument("--name", type=str, default="")
 
     # hyperparameterss
@@ -127,8 +127,6 @@ def parse_cmd_args()->tuple[str, dict, dict]:
 
         elif k == "deterministic":
             train_args[k] = args["no_deterministic"]
-            if "rtdetr" in model_arch:
-                train_args[k] = False
 
     
     check = confirm(
