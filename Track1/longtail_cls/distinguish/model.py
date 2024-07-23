@@ -269,7 +269,8 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
                 bar.set_postfix(
                     ordered_dict={
                         'cls_loss': f"{cls_l:.4f}",
-                        'cl':f"{critera_cl:.4f}"
+                        'cl':f"{feature_loss:.4f}",
+                        'total_loss':f"{total_loss:.4f}"
                     } if contrastive_learning else {
                         'cls_loss' : f"{cls_l:.4f}"
                     }
