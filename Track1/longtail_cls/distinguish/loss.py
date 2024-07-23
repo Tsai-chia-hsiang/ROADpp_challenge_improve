@@ -17,7 +17,7 @@ class LogitAdjust(Callable):
         cls_p_list = cls_num_list / cls_num_list.sum()
         m_list = tau * torch.log(cls_p_list)
         self.m_list = m_list.view(1, -1)
-        self.weight = weight
+        self.weight = weight.to(device)
 
     def __call__(self, x, target)->torch.Tensor:
         x_m = x + self.m_list
@@ -26,9 +26,6 @@ class LogitAdjust(Callable):
 class SCL(Callable):
 
     def __init__(self, ncls:int, temperature=0.1, device=torch.device("cpu"), ema_alpha:float=0.99, fdim:int=768):
-        """
-        - fdim : 768 for vit_b_16
-        """
         
         super().__init__()
         self.on_device = device
@@ -46,7 +43,7 @@ class SCL(Callable):
         """
         EMA updating with alpha = self.alpha
         """
-        assert self._prototype is not None
+        print("updating ..")
         for ci in update_cls.unique(return_counts=False):
             class_mean = torch.mean(pnew[torch.where(update_cls == ci)[0]], dim=0)
             self._prototype[ci] = \
@@ -56,7 +53,7 @@ class SCL(Callable):
         
         if self.prototype is None:
             return 0
-    
+        bs = features.size(0)
         cls_index = torch.concat([targets, self.cls_indices]).detach()
         cls_count = torch.histc(
             cls_index.to(dtype=torch.float32), 
@@ -68,11 +65,7 @@ class SCL(Callable):
         ).detach()
         
         #size :  N x (N + CLS) with self mask 
-        # TODO : torch.cosine_similarity()
-        cosine_map = (
-            features@torch.vstack([features, self._prototype]).T/self.temperature
-        ).fill_diagonal_(0)
-    
+        cosine_map = (features@torch.vstack([features, self._prototype]).T/self.temperature).fill_diagonal_(0)
         cosine_map = numerical_stable(cosine_map).fill_diagonal_(0)
         
         # since there are prototypes for each class, cls_count can't be 0
@@ -83,8 +76,8 @@ class SCL(Callable):
         # postive samples filtering and self mask
         L = (cosine_map - torch.log(cls_avg))*(class_one_hot_axis[:, targets].T).fill_diagonal_(0)
         L = torch.sum(L,dim=1, keepdim=True)
-        w = -(1/(cls_count[0, targets] -1)).view(1, -1)
-        return w@L
+        cl = -(1/(cls_count[0, targets] -1)).view(1, -1)@L
+        return cl/bs
 
 def set_seed(seed=42, loader=None):
     random.seed(seed) 
