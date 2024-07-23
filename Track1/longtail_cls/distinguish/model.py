@@ -67,7 +67,7 @@ class ReID_Model(torch.nn.Module):
 
 class ViT_Cls_Constractive_Model(torch.nn.Module):
 
-    def __init__(self, ncls:int=10) -> None:
+    def __init__(self, ncls:int=10, fdim:int=128) -> None:
     
         super().__init__()
     
@@ -75,15 +75,15 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         self.backbone:VisionTransformer = models.vit_b_16(
             weights=ViT_B_16_Weights.DEFAULT
         )
-
-        self.backbone.heads.head = torch.nn.Linear(
-            self.backbone.heads.head.in_features, ncls
-        )
+        self.fdim = fdim
+        self.backbone.heads.head = torch.nn.Linear(self.backbone.heads.head.in_features, ncls)
+        self.feature_net = torch.nn.Linear(768, self.fdim)
 
     def forward(self, x:torch.Tensor, with_token:bool=False):
         out = self.backbone(x, with_token=with_token)
         if with_token:
-            return out[0], F.normalize(out[1][:, 0], p=2, dim=1)
+            f = self.feature_net(out[1][:, 0])
+            return out[0], F.normalize(f, p=2, dim=1)
         return out
     
     @classmethod
@@ -107,8 +107,7 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         contrastive_learning:bool=False,
         ckpt:Path = Path("vit_cls.pt"),
         board:Optional[SummaryWriter]=None,
-        debug:int=-1
-        
+        debug:int=-1     
     ) -> Optimizer:
 
         cls_loss = LogitAdjust(cls_num_list=self.ncls, device=dev)
@@ -173,7 +172,7 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
                 logger.info(f"validation F1 : {valid_log['f1']}; macro : {valid_log['macro f1']}")
                 if board is not None:
                     board.add_scalar(f"valid_macro_f1", valid_log['macro f1'], e)
-                if valid_log['macro f1'] <= best_f1:
+                if valid_log['macro f1'] >= best_f1:
                     save_to = ckpt.parent/f'{ckpt.stem}_epoch{e}.pt'
                     logger.info(f"current best valid f1:{best_f1}; new best valid f1:{valid_log['macro f1']}")
                     logger.info(f"save weights to {save_to}")
@@ -187,7 +186,7 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
                     
                     torch.save(self.state_dict(), ckpt.parent/f"{ckpt.stem}_no_valid_epoch{e}.pt")
                     best_loss = loss_log['total']
-
+        
         return optim
     
     def _train_one_epoch(
@@ -270,7 +269,8 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
     @torch.no_grad()
     def inference_one_epoch(
         self, inference_loader:DataLoader, dev:torch.device, 
-        pbar:bool=True, return_pred:bool=True,
+        pbar:bool=True, return_pred:bool=True, 
+        cls_loss:Optional[LogitAdjust]=None,
         debug_iter:int=-1
     ) -> np.ndarray|dict|tuple[np.ndarray, dict]:
         
