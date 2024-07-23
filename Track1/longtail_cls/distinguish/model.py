@@ -256,7 +256,8 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
                     current_cl = critera_cl/n_sample
                     current_total = critera_total/n_sample
                     loss_info += f"cl_loss: {current_cl:.4f} total_loss: {current_total:.4f}"
-                logger.info(loss_info)
+                
+                logger.info(loss_info, extra={'file_only':True})
 
                 if board is not None:
                     board.add_scalar("cls_loss",current_cls, epoch * len(train_loader) + idx)

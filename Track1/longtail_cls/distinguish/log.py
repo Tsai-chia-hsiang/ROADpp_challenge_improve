@@ -2,6 +2,12 @@ import os
 from pathlib import Path
 import logging
 
+class InfoFilter(logging.Filter):
+    def filter(self, record):
+        # Only log messages that do not have the 'console_only' attribute set to True
+        return not getattr(record, 'file_only', False)
+
+
 def get_logger(name: str, file: os.PathLike) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
@@ -16,6 +22,7 @@ def get_logger(name: str, file: os.PathLike) -> logging.Logger:
         # Create a console handler
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
+        console_handler.addFilter(InfoFilter())
         console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
         # Add handlers to the logger
