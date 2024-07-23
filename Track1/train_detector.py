@@ -192,4 +192,8 @@ def main():
     
 
 if __name__ == "__main__":
+    print(torch.cuda.device_count())
+    for i in range(torch.cuda.device_count()):
+        print(torch.cuda.get_device_properties(i))
+    _ = input("ok ?")
     main()
