@@ -393,7 +393,7 @@ if __name__ == '__main__':
         args.imgsz = 1920
     
     else:
-        shutil.copy(args.rare_path, args.pkl_dir/f"{args.detector}.pt")
+        shutil.copy(args.model_path, args.pkl_dir/f"{args.detector}.pt")
         args.yolo = detector[args.detector](args.model_path)
         
     
