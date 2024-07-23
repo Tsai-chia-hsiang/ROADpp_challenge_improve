@@ -43,17 +43,26 @@ def main():
         f"cuda:{max(args.device, torch.cuda.device_count()-1)}"
         if args.device >= 0 else "cpu"
     )
-    logger.info(f"Using {dev}") 
+    
+    #train loader
     logger.info(f"build training set from {Path(args.root)/'train'}")
     train_dataset = MC_ReID_Features_Dataset.build_dataset(root=Path(args.root)/"train")
     logger.info(f"training set class counts : ")
     logger.info(f"{train_dataset.cls_count.tolist()}")
     logger.info(f"")
+
+    #validatino loader
     logger.info(f"build validation set from {Path(args.root)/'valid'}")
     valid_dataset = MC_ReID_Features_Dataset.build_dataset(root=Path(args.root)/"valid")
     logger.info(f"validation set class counts : ")
     logger.info(f"{valid_dataset.cls_count.tolist()}")
     logger.info(f"")
+    
+    #print device info
+    logger.info("Device properties:")
+    logger.info(f"{torch.cuda.get_device_properties(dev)}")
+    logger.info("") 
+    
     model = ViT_Cls_Constractive_Model(ncls=train_dataset.ncls)
     scl = SCL(model.ncls, device=dev)
 
