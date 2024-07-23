@@ -34,9 +34,8 @@ def ViT_encoder(with_head = False)->torch.nn.Module|tuple[torch.nn.Module, ]:
         return model.encoder
     return model.encoder, model.heads
 
-EN_MAP ={
-    'resnext101':ResNeXt101_encoder
-}
+EN_MAP ={'resnext101':ResNeXt101_encoder}
+
 def remove_module_prefix(state_dict):
     """
     Remove the 'module.' prefix from the state dictionary keys.
@@ -67,7 +66,7 @@ class ReID_Model(torch.nn.Module):
 
 class ViT_Cls_Constractive_Model(torch.nn.Module):
 
-    def __init__(self, ncls:int=10, fdim:int=128) -> None:
+    def __init__(self, ncls:int=10) -> None:
     
         super().__init__()
     
@@ -75,9 +74,15 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         self.backbone:VisionTransformer = models.vit_b_16(
             weights=ViT_B_16_Weights.DEFAULT
         )
-        self.fdim = fdim
+        self.fdim = 128
         self.backbone.heads.head = torch.nn.Linear(self.backbone.heads.head.in_features, ncls)
-        self.feature_net = torch.nn.Linear(768, self.fdim)
+        self.feature_net = torch.nn.Sequential(
+            *[
+                torch.nn.Linear(768, 512),
+                torch.nn.ReLU(),
+                torch.nn.Linear(512, 128)
+            ]
+        )
 
     def forward(self, x:torch.Tensor, with_token:bool=False):
         out = self.backbone(x, with_token=with_token)
@@ -95,53 +100,54 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         
         return M
     
+    def _get_optimizer(self, opt:Literal["adam","adamw", "sgd"]="adamw", lr:float=0.01, momentum:float=0.9)->Optimizer:
+
+        match opt.lower():
+            case "adam":
+                return Adam(self.parameters(), lr=lr)
+            case "adamw":
+                return AdamW(self.parameters(), lr=lr)
+            case "sgd":
+                return SGD(self.parameters(), lr=lr, momentum=momentum)
+            case _:
+                raise KeyError(f"Not support {opt}")
+    
     def train_model(
         self, logger:Logger,
         train_set:MC_ReID_Features_Dataset, 
         valid_set:Optional[MC_ReID_Features_Dataset]=None, 
         dev:torch.device = torch.device("cpu"), batch:int=50,
-        epochs:int=8, val_epochs:int=2,
+        epochs:int=20, warm_up:int=2, val_epochs:int=2,
         optimizer:Literal["adam","adamw", "sgd"]="adamw", lr:int=0.01,
-        shared_optimizer:Optional[Optimizer] = None, 
-        scl_loss:Optional[SCL]=None, 
         contrastive_learning:bool=False,
         ckpt:Path = Path("vit_cls.pt"),
         board:Optional[SummaryWriter]=None,
         debug:int=-1     
     ) -> Optimizer:
-
-        cls_loss = LogitAdjust(cls_num_list=self.ncls, device=dev)
+                
         self.to(device=dev)
-        
-        
+        cls_loss = LogitAdjust(cls_num_list=self.ncls, device=dev, weight=torch.log(train_set.cls_w))
+        scl_loss = SCL(self.ncls, device=dev, fdim=self.fdim)
+    
         logger.info(f"Training VIT classification model {epochs} epochs with CE ,{'contrastive loss' if contrastive_learning else ''} ")
         logger.info(f"optimizer : {optimizer} with initial lr {lr}")
         
-        optim:Optimizer = shared_optimizer  
-        if optim is None:
-            match optimizer.lower():
-                case "adam":
-                    optim = Adam(self.parameters(), lr=lr)
-                case "adamw":
-                    optim = AdamW(self.parameters(), lr=lr)
-                case "sgd":
-                    optim = SGD(self.parameters(), lr=lr, momentum=0.9)
-                case _:
-                    raise KeyError(f"Not support {optimizer}")
-        else:
-            logger.info("using shared optimizer from args")
-
+        optim:Optimizer = self._get_optimizer(opt=optimizer, lr=lr)
+        
         train_loader = DataLoader(
             dataset=train_set, 
             batch_size=batch, 
             shuffle=True, 
-            sampler=train_set.bias_sampler
+            sampler=train_set.bias_sampler,
+            pin_memory=True
         )
         valid_loader = DataLoader(
             dataset=valid_set, 
             batch_size=batch, 
-            shuffle=False
+            shuffle=False,
+            pin_memory=True
         ) if valid_set is not None else None
+
         if valid_set is None:
             logger.info("===> No validation set, using training loss to judeg <===")
         
@@ -149,29 +155,39 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         best_loss = np.inf
         
         for e in range(epochs):
-            logger.info("training..")
+        
             if debug > 0:
                 logger.info(f"debugging, run just {debug} batch(s)")
             
+            if e < warm_up:
+                logger.info(f"training epoch {e}, warm-up : only classification loss")
+            else :
+                logger.info(f"training epoch {e}, with contrastive learning")
+
             loss_log = self._train_one_epoch(
                 train_loader=train_loader,optim=optim, dev=dev, 
                 cls_criteria=cls_loss,
-                contrastive_learning=contrastive_learning,
+                contrastive_learning=contrastive_learning if e >= warm_up else False,
                 contrastive_criteria=scl_loss,
                 board=board,
                 debug_iter=debug
             )
-            logger.info(f"training loss : {loss_log}")
-            if valid_loader is not None and (e+1)%val_epochs == 0:
+            logger.info(f"training loss : ")
+            logger.info(f"{loss_log}")
+            if valid_loader is not None and ( (e+1)%val_epochs == 0 or (e+1) == warm_up):
                 
+                logger.info(f"validation epoch {e}")
                 valid_log = self.inference_one_epoch(
                     inference_loader=valid_loader,
                     dev=dev, return_pred=False,
                     debug_iter=debug
                 )
+
                 logger.info(f"validation F1 : {valid_log['f1']}; macro : {valid_log['macro f1']}")
+                
                 if board is not None:
                     board.add_scalar(f"valid_macro_f1", valid_log['macro f1'], e)
+                
                 if valid_log['macro f1'] >= best_f1:
                     save_to = ckpt.parent/f'{ckpt.stem}_epoch{e}.pt'
                     logger.info(f"current best valid f1:{best_f1}; new best valid f1:{valid_log['macro f1']}")
@@ -238,8 +254,7 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
 
             if contrastive_learning:
                 critera_cl += feature_loss.item()*xi.size(0) 
-
-            contrastive_criteria.update_prototype(pnew=fi.detach(),update_cls=li.detach())
+                contrastive_criteria.update_prototype(pnew=fi.detach(),update_cls=li.detach())
             
             if pbar:
                 bar.set_postfix(
