@@ -166,7 +166,7 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
 
             loss_log = self._train_one_epoch(
                 train_loader=train_loader,optim=optim, dev=dev, 
-                cls_criteria=cls_loss,
+                cls_criteria=cls_loss, logger=logger,
                 contrastive_learning=contrastive_learning if e >= warm_up else False,
                 contrastive_criteria=scl_loss,
                 board=board,
@@ -206,15 +206,11 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         return optim
     
     def _train_one_epoch(
-        self, train_loader:DataLoader, 
-        optim:Optimizer, dev:torch.device, 
-        cls_criteria:LogitAdjust, 
-        contrastive_learning:bool=False,
-        contrastive_criteria:Optional[SCL]=None, 
-        w:Iterable[float]=(2, 0.6),
-        pbar:bool=True, board:Optional[SummaryWriter]=None, 
-        log_batch_num:int=10, epoch:int=1, 
-        debug_iter:int=-1
+        self, train_loader:DataLoader,  logger:Logger,
+        optim:Optimizer, dev:torch.device, cls_criteria:LogitAdjust, 
+        contrastive_learning:bool=False, contrastive_criteria:Optional[SCL]=None, 
+        w:Iterable[float]=(2, 0.6), pbar:bool=True, board:Optional[SummaryWriter]=None, 
+        log_batch_num:int=10, epoch:int=1, debug_iter:int=-1,
     ) -> float|dict[str, float]:
         
         img:torch.FloatTensor = None
@@ -222,11 +218,13 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         yi:torch.FloatTensor = None
         fi:torch.FloatTensor = None
         li:torch.LongTensor = None
-        
+        n_sample = 0
         log_freq = len(train_loader) // log_batch_num
         
         self.train()
-        critera_cls, critera_cl = 0, 0
+        critera_cls, critera_cl, critera_total = 0, 0, 0
+        current_cls, current_cl, current_total = 0, 0, 0
+
         bar = tqdm(train_loader) if pbar else train_loader
         for idx, (img, li) in enumerate(bar):
             optim.zero_grad()
@@ -243,19 +241,29 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
             total_loss:torch.Tensor = cls_l + feature_loss
             total_loss.backward()
             optim.step()
-            if board is not None and idx % log_freq == 0:
-                if contrastive_learning:
-                    board.add_scalar("constrastive_loss", feature_loss, epoch * len(train_loader) + idx)
-                    board.add_scalar("total_loss", total_loss, epoch * len(train_loader) + idx)
-                else:
-                    board.add_scalar("cls_loss", cls_l, epoch * len(train_loader) + idx)
             
+            n_sample += xi.size(0)
             critera_cls += cls_l.item()*xi.size(0)
-
             if contrastive_learning:
                 critera_cl += feature_loss.item()*xi.size(0) 
+                critera_total += total_loss.item()*xi.size(0)
                 contrastive_criteria.update_prototype(pnew=fi.detach(),update_cls=li.detach())
             
+            if idx % log_freq == 0:
+                current_cls = critera_cls/n_sample
+                loss_info = f"cls_loss: {current_cls:.4f} "
+                if contrastive_learning:
+                    current_cl = critera_cl/n_sample
+                    current_total = critera_total/n_sample
+                    loss_info += f"cl_loss: {current_cl:.4f} total_loss: {current_total:.4f}"
+                logger.info(loss_info)
+
+                if board is not None:
+                    board.add_scalar("cls_loss",current_cls, epoch * len(train_loader) + idx)
+                    if contrastive_learning:
+                        board.add_scalar("constrastive_loss", current_cl, epoch * len(train_loader) + idx)
+                        board.add_scalar("total_loss",current_total, epoch * len(train_loader) + idx)
+
             if pbar:
                 bar.set_postfix(
                     ordered_dict={
@@ -268,17 +276,15 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
             if debug_iter > 0:
                 if idx == debug_iter:
                     break
-        
-        critera_cls /= len(train_loader.dataset)
-        critera_cl /= len(train_loader.dataset)
-       
+
         return {
-            'cls':critera_cls,
-            'total':critera_cls
-        } if not contrastive_learning else {
-            'cls':critera_cls,
-            'contrastive':critera_cl,
-            'total':critera_cls + critera_cl
+            'cls':critera_cls/n_sample,
+            'total':critera_cls/n_sample
+        } if not contrastive_learning else \
+        {
+            'cls':critera_cls/n_sample,
+            'contrastive':critera_cl/n_sample,
+            'total':critera_total/n_sample
         }
     
     @torch.no_grad()
