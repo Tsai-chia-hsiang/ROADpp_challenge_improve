@@ -43,7 +43,7 @@ class SCL(Callable):
         """
         EMA updating with alpha = self.alpha
         """
-        print("updating ..")
+        # print("updating ..")
         for ci in update_cls.unique(return_counts=False):
             class_mean = torch.mean(pnew[torch.where(update_cls == ci)[0]], dim=0)
             self._prototype[ci] = \
@@ -75,9 +75,9 @@ class SCL(Callable):
 
         # postive samples filtering and self mask
         L = (cosine_map - torch.log(cls_avg))*(class_one_hot_axis[:, targets].T).fill_diagonal_(0)
-        L = torch.sum(L,dim=1, keepdim=True)
+        L = torch.sum(L,dim=1, keepdim=True)/bs
         cl = -(1/(cls_count[0, targets] -1)).view(1, -1)@L
-        return cl/bs
+        return cl
 
 def set_seed(seed=42, loader=None):
     random.seed(seed) 
