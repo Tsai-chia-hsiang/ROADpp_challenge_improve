@@ -145,7 +145,7 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         if valid_set is None:
             logger.info("===> No validation set, using training loss to judeg <===")
         
-        best_f1 = np.inf
+        best_f1 = 0
         best_loss = np.inf
         
         for e in range(epochs):
