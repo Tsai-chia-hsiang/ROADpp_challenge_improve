@@ -396,7 +396,7 @@ if __name__ == '__main__':
         copy_model = args.pkl_dir/f'{args.detector}.pt'
         print(f"copy {args.model_path} to {copy_model}")
         shutil.copy(args.model_path, copy_model)
-
+        args.yolo = detector[args.detector](copy_model)
     
     if args.mode == 'Track2':
         args.action_detector = torch.load(args.action_detector_path)
