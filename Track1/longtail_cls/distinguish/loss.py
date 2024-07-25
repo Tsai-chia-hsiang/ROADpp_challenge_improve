@@ -35,9 +35,14 @@ class SCL(Callable):
         self._prototype:torch.Tensor = torch.zeros(ncls, fdim).detach().to(device=device)
         self.alpha = ema_alpha
     
+    
     @property
     def prototype(self)->torch.Tensor:
         return self._prototype.clone()
+    
+    @prototype.setter
+    def prototype(self, p:torch.Tensor):
+        self._prototype = p.clone().detach().to(self.on_device)
     
     def update_prototype(self, pnew:torch.Tensor, update_cls:torch.Tensor)->None:
         """
