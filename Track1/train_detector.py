@@ -107,7 +107,7 @@ def parse_cmd_args()->tuple[str, dict, dict]:
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--lr0", type=float, default=1e-2)
     parser.add_argument("--patience", type=int, default=-1)
-    parser.add_argument("--batch", type=int, default=5)
+    parser.add_argument("--batch", type=int, default=3)
     parser.add_argument("--optimizer", type=str, default="")
     parser.add_argument("--no_deterministic", action='store_false')
     parser.add_argument("--imgsz",type=int, default=1280)
@@ -192,4 +192,8 @@ def main():
     
 
 if __name__ == "__main__":
+    print(torch.cuda.device_count())
+    for i in range(torch.cuda.device_count()):
+        print(torch.cuda.get_device_properties(i))
+    _ = input("ok ?")
     main()
