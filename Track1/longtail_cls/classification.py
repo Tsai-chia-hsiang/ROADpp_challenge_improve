@@ -1,12 +1,16 @@
 import os
+import json
 from pathlib import Path
 from argparse import ArgumentParser
+import numpy as np
+import pandas as pd
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import torch
+from torch.utils.data import DataLoader
 from distinguish.dataset import MC_ReID_Features_Dataset
 from distinguish.model import ViT_Cls_Constractive_Model
 from distinguish.dataset import MC_ReID_Features_Dataset
 from distinguish.loss import set_seed
-from distinguish.loss import SCL
 from distinguish.log import get_logger, remove_old_tf_evenfile
 from torch.utils.tensorboard import SummaryWriter
 
@@ -15,6 +19,7 @@ def layze_parse_arg():
     My Lam-Par serrrrrrrr
     """
     parser = ArgumentParser()
+    parser.add_argument("--operation", type=str,nargs='+', default=['train'])
     parser.add_argument("--model", type=str, default="vit")
     parser.add_argument("--pretrained", type=Path, default=None)
     parser.add_argument("--root", type=Path, default=Path("./")/"crop")
@@ -31,9 +36,37 @@ def layze_parse_arg():
     args = parser.parse_args()
     return args
 
-def main():
+def test_cls(args, ncls:int=10, mode:str="valid"):
+   
+    dev = torch.device(
+        f"cuda:{max(args.device, torch.cuda.device_count()-1)}"
+        if args.device >= 0 else "cpu"
+    )
+    assert args.pretrained is not None
+    dset = MC_ReID_Features_Dataset.build_dataset(
+        root=Path(args.root)/f"{mode}"
+    )
+    model = ViT_Cls_Constractive_Model.build_model(
+        ncls=ncls, ckpt= args.pretrained
+    )
+    model.to(device=dev)
+    eva = model.inference_one_epoch(
+        inference_loader= DataLoader(
+            dataset=dset, batch_size=args.batch_size
+        ),
+        return_pred=False, metrcs_tolist=True, confusion_matrix="pd",
+        dev=dev
+    )
+    with open(args.ckpt/f"valid_metrics.json", "w+") as f:
+        json.dump(
+            {k:v for k, v in eva.items() if k != "confusion matrix"}, 
+            f, indent=4, ensure_ascii=False
+        )
     
-    args = layze_parse_arg()
+    eva['confusion matrix'].to_csv(args.ckpt/'confusion_matrix.csv', index=False)
+
+def train_cls(args):
+    
     set_seed(args.seed)
     Path(args.ckpt).mkdir(parents=True, exist_ok=True)
     logger = get_logger(name=__name__, file=args.ckpt/"training.log")
@@ -86,6 +119,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-
-
+    
+    args = layze_parse_arg()
+    
+    if 'train' in args.operation:
+        print("train")
+        train_cls(args=args)
+    
+    if 'valid' in args.operation:
+        print("valid")
+        test_cls(args=args, mode='valid')
