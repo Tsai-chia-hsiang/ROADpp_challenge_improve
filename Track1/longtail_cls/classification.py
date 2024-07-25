@@ -16,6 +16,7 @@ def layze_parse_arg():
     """
     parser = ArgumentParser()
     parser.add_argument("--model", type=str, default="vit")
+    parser.add_argument("--pretrained", type=Path, default=None)
     parser.add_argument("--root", type=Path, default=Path("./")/"crop")
     parser.add_argument("--ckpt", type=Path, default=Path("ckpt")/"cls")
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -57,7 +58,10 @@ def main():
     logger.info(f"validation set class counts : ")
     logger.info(f"{valid_dataset.cls_count.tolist()}")
     logger.info(f"")
-    model = ViT_Cls_Constractive_Model(ncls=train_dataset.ncls)
+    model = ViT_Cls_Constractive_Model.build_model(
+        ncls=train_dataset.ncls,
+        ckpt= args.pretrained
+    )
     
     board = SummaryWriter(args.ckpt)
     model.train_model(
