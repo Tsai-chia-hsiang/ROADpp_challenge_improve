@@ -96,6 +96,7 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         
         M = cls(ncls=ncls)
         if ckpt is not None:
+            print(f"load pretrained weights from {ckpt}")
             M.load_state_dict(remove_module_prefix(torch.load(ckpt, map_location="cpu")))
         
         return M
@@ -112,6 +113,35 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
             case _:
                 raise KeyError(f"Not support {opt}")
     
+    @torch.no_grad
+    def get_prototype(
+        self, dset:MC_ReID_Features_Dataset, 
+        batch:int=50, dev:torch.device=torch.device("cpu"),
+        logger:Optional[Logger]=None
+    ) -> torch.Tensor:
+        
+        if logger is not None:
+            logger.info("get prototypes for each class from dset")
+        else:
+            print("get prototypes for each class from dset")
+        
+        ptype = torch.zeros((self.ncls, self.fdim)).to(device=dev).detach()
+        loader = DataLoader(dset, batch_size=batch, shuffle=False)
+        cls_num = dset.cls_count.to(device=dev)
+        
+        xi:torch.FloatTensor = None
+        yi:torch.LongTensor = None
+
+        for xi, yi in tqdm(loader):
+            _, f = self(xi.to(dev), with_token=True)
+            for li in yi.unique(return_counts=False):
+                ptype[li] += torch.sum(
+                    (f[torch.where(yi == li)[0]]/cls_num[li]),
+                    dim=0
+                ).detach()
+
+        return ptype
+
     def train_model(
         self, logger:Logger,
         train_set:MC_ReID_Features_Dataset, 
@@ -128,6 +158,12 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         self.to(device=dev)
         cls_loss = LogitAdjust(cls_num_list=self.ncls, device=dev, weight=torch.log(train_set.cls_w))
         scl_loss = SCL(self.ncls, device=dev, fdim=self.fdim)
+        if warm_up == -1:
+            logger.info("using pretrained weights to build prototype")
+            scl_loss.prototype = self.get_prototype(
+                dset=train_set, logger=logger, 
+                dev=dev, batch=batch
+            )
     
         logger.info(f"Training VIT classification model {epochs} epochs with CE ,{'contrastive loss' if contrastive_learning else ''} ")
         logger.info(f"optimizer : {optimizer} with initial lr {lr}")
