@@ -150,7 +150,7 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         epochs:int=20, warm_up:int=2, val_epochs:int=2,
         optimizer:Literal["adam","adamw", "sgd"]="adamw", lr:int=0.01,
         contrastive_learning:bool=False,
-        ckpt:Path = Path("vit_cls.pt"),
+        ckpt:Path = Path("vit_cls"),
         board:Optional[SummaryWriter]=None,
         debug:int=-1     
     ) -> Optimizer:
@@ -158,13 +158,19 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         self.to(device=dev)
         cls_loss = LogitAdjust(cls_num_list=self.ncls, device=dev, weight=torch.log(train_set.cls_w))
         scl_loss = SCL(self.ncls, device=dev, fdim=self.fdim)
-        if warm_up == -1:
+        if warm_up == -1 and debug <= 0:
             logger.info("using pretrained weights to build prototype")
-            scl_loss.prototype = self.get_prototype(
-                dset=train_set, logger=logger, 
-                dev=dev, batch=batch
-            )
-    
+            if not (ckpt/f"init_prototype.pt").is_file():
+                scl_loss.prototype = self.get_prototype(
+                    dset=train_set, logger=logger, 
+                    dev=dev, batch=batch
+                )
+                logger.info(f"save to {ckpt/f'init_prototype.pt'}")
+                torch.save(scl_loss.prototype.cpu(), ckpt/f"init_prototype.pt")
+            else:
+                logger.info(f"load from {ckpt/f'init_prototype.pt'}")
+                scl_loss.prototype = torch.load(ckpt/f"init_prototype.pt")
+        
         logger.info(f"Training VIT classification model {epochs} epochs with CE ,{'contrastive loss' if contrastive_learning else ''} ")
         logger.info(f"optimizer : {optimizer} with initial lr {lr}")
         
@@ -284,31 +290,33 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
                 critera_cl += feature_loss.item()*xi.size(0) 
                 critera_total += total_loss.item()*xi.size(0)
                 contrastive_criteria.update_prototype(pnew=fi.detach(),update_cls=li.detach())
-            
+        
             if idx % log_freq == 0:
                 current_cls = critera_cls/n_sample
                 loss_info = f"cls_loss: {current_cls:.4f} "
                 if contrastive_learning:
                     current_cl = critera_cl/n_sample
                     current_total = critera_total/n_sample
+                   
                     loss_info += f"cl_loss: {current_cl:.4f} total_loss: {current_total:.4f}"
                 
                 logger.info(loss_info, extra={'file_only':True})
-
+            
                 if board is not None:
                     board.add_scalar("cls_loss",current_cls, epoch * len(train_loader) + idx)
                     if contrastive_learning:
+                        
                         board.add_scalar("constrastive_loss", current_cl, epoch * len(train_loader) + idx)
                         board.add_scalar("total_loss",current_total, epoch * len(train_loader) + idx)
 
             if pbar:
                 bar.set_postfix(
                     ordered_dict={
-                        'cls_loss': f"{cls_l:.4f}",
-                        'cl':f"{feature_loss:.4f}",
-                        'total_loss':f"{total_loss:.4f}"
+                        'cls_loss': f"{cls_l.item():.4f}",
+                        'cl':f"{feature_loss.item():.4f}",
+                        'total_loss':f"{total_loss.item():.4f}"
                     } if contrastive_learning else {
-                        'cls_loss' : f"{cls_l:.4f}"
+                        'cls_loss' : f"{cls_l.item():.4f}"
                     }
                 )
             if debug_iter > 0:
