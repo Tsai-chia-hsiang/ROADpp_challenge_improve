@@ -21,6 +21,7 @@ from .loss import LogitAdjust, SCL
 from .dataset import MC_ReID_Features_Dataset
 from .evaluation import classification as eva_cls
 from torchvision.models.vision_transformer import ViT_B_16_Weights
+from torchvision.models.resnet import ResNeXt101_32X8D_Weights
 from torch.utils.tensorboard import SummaryWriter
 
 def remove_module_prefix(state_dict):
@@ -243,20 +244,8 @@ class _Contrastive_Learning_Model(torch.nn.Module):
                 contrastive_criteria.update_prototype(pnew=fi.detach(),update_cls=li.detach())
         
             if idx % log_freq == 0:
-
-                loss_info = f"cls_loss: {cls_l.item():.4f} "
-                if contrastive_learning:
-                    loss_info += f"cl_loss: {feature_loss.item():.4f} total_loss: {total_loss.item():.4f}"
-                
-                logger.info(loss_info, extra={'file_only':True})
+                logger.info(f"epoch {epoch} train to {idx} batch", extra={'file_only':True})
             
-                if board is not None:
-                    board.add_scalar("cls_loss",cls_l.item(), epoch * len(train_loader) + idx)
-                    if contrastive_learning:
-                        
-                        board.add_scalar("constrastive_loss", feature_loss.item(), epoch * len(train_loader) + idx)
-                        board.add_scalar("total_loss",total_loss.item(), epoch * len(train_loader) + idx)
-
             if pbar:
                 bar.set_postfix(
                     ordered_dict={
@@ -267,18 +256,28 @@ class _Contrastive_Learning_Model(torch.nn.Module):
                         'cls_loss' : f"{cls_l.item():.4f}"
                     }
                 )
+            
             if debug_iter > 0:
                 if idx == debug_iter:
                     break
 
+        critera_cls /= n_sample
+        critera_cl /= n_sample
+        critera_total /= n_sample
+        if board is not None:
+            board.add_scalar("cls_loss",critera_cls, epoch * len(train_loader) + idx)
+            if contrastive_learning: 
+                board.add_scalar("constrastive_loss", critera_cl, epoch * len(train_loader) + idx)
+                board.add_scalar("total_loss", critera_total, epoch * len(train_loader) + idx)
+
         return {
-            'cls':critera_cls/n_sample,
-            'total':critera_cls/n_sample
+            'cls':critera_cls,
+            'total':critera_total
         } if not contrastive_learning else \
         {
-            'cls':critera_cls/n_sample,
-            'contrastive':critera_cl/n_sample,
-            'total':critera_total/n_sample
+            'cls':critera_cls,
+            'contrastive':critera_cl,
+            'total':critera_total
         }
     
     @torch.no_grad()
@@ -345,7 +344,7 @@ class ResNext101_Cls_contrastive_Model(_Contrastive_Learning_Model):
     
     def __init__(self, ncls:int=10, fdim:int=128):
         super().__init__(ncls=ncls, fdim=fdim)
-        self.backbone = models.resnext101_32x8d(pretrained=True)
+        self.backbone = models.resnext101_32x8d(weights = ResNeXt101_32X8D_Weights.DEFAULT)
         out_f = self.backbone.fc.in_features
         self.backbone = torch.nn.Sequential(*list(self.backbone.children())[:-1])
         self.cls_head = torch.nn.Linear(out_f, self.ncls)
@@ -357,8 +356,9 @@ class ResNext101_Cls_contrastive_Model(_Contrastive_Learning_Model):
                 torch.nn.Linear(512, self.fdim)
             ]
         )
+    
     def forward(self, x:torch.Tensor, features:bool=False) -> torch.Tensor|tuple[torch.Tensor, torch.Tensor]:
-        f0 = self.backbone(x, with_token=features)
+        f0 = self.backbone(x).squeeze()
         logit = self.cls_head(f0)
         if features:
             f = self.feature_net(f0)
@@ -386,9 +386,14 @@ class ViT_Cls_Constrastive_Model(_Contrastive_Learning_Model):
             ]
         )
 
-    def forward(self, x:torch.Tensor, features:bool=False):
+    def forward(self, x:torch.Tensor, features:bool=False) -> torch.Tensor|tuple[torch.Tensor, torch.Tensor]:
         out = self.backbone(x, with_token=features)
         if features:
             f = self.feature_net(out[1][:, 0])
             return out[0], F.normalize(f, p=2, dim=1)
         return out
+
+MODELS:dict[str, _Contrastive_Learning_Model] = {
+    'resnext101':ResNext101_Cls_contrastive_Model.build_model,
+    'vit':ViT_Cls_Constrastive_Model.build_model
+}
