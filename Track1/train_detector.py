@@ -1,7 +1,6 @@
 import os
 import sys
 import time
-from typing import Literal
 import os.path as osp
 import torch
 from ultralytics.engine.model import Model
@@ -25,8 +24,9 @@ def get_pretrained_ulra_model(arch:str, ckpt:Path=None)->Model:
         raise KeyError("Not support this arch")
     
     if ckpt is not None:
+        print(f"load pretrained from {ckpt} ..")
         assert osp.exists(ckpt)
-    
+
     return MODEL_MAP[backbone](arch if ckpt is None else ckpt)
  
 def train_ultra_model(ultra_model:Model, data_cfg:os.PathLike, name:str, project:os.PathLike="ckpt", **train_args):
@@ -43,23 +43,26 @@ def train_ultra_model(ultra_model:Model, data_cfg:os.PathLike, name:str, project
     )
 
 @torch.no_grad()
-def val_ultra_model(ultra_model:Model, data_cfg:os.PathLike, name:os.PathLike, imgsz:int=1280, batch:int=5, device:int|list[int]=0):
-    """
-    TODO : intergrate it into pipeline
-    """
-    results = ultra_model.val(
+def val_ultra_model(
+    ultra_model:Model, data_cfg:os.PathLike,
+    project:os.PathLike, name:str, 
+    imgsz:int=1280, batch:int=5, device:int|list[int]=0
+):
+
+    _ = ultra_model.val(
         data = data_cfg,
         imgsz = imgsz,
         device = device,
         batch = batch,
-        name = name
+        project = project,
+        name = Path(f"{name}")/"valid"
     )
-    print(results)
 
 
-def parse_cmd_args()->tuple[str, dict, dict]:
+
+def parse_cmd_args()->tuple[str, dict, dict, bool]:
     
-    def confirm(modelarch:str, args:dict, train_args:dict) -> bool:
+    def confirm(modelarch:str, args:dict, train_args:dict, only_valid:bool) -> bool:
         indent = 50
         print()
         print("pathes settings:")
@@ -84,7 +87,10 @@ def parse_cmd_args()->tuple[str, dict, dict]:
         if idx % 2 == 0:
             print()
         print("="*indent)
-        print()
+        if only_valid:
+            print(f"only valid")
+        else:
+            print("")
         check = "WAIT"
         while check not in ["y", "n", ""]:
             check = input("Sure? [y/Enter (Continue); n (Abort)]: ")
@@ -113,9 +119,10 @@ def parse_cmd_args()->tuple[str, dict, dict]:
     parser.add_argument("--imgsz",type=int, default=1280)
     parser.add_argument("--amp", action='store_true')
     parser.add_argument("--resume", action='store_true')
+    parser.add_argument("--valid_only",action='store_true')
 
     args = vars(parser.parse_args())
-    
+    only_valid = args['valid_only']
     model_arch = args["detector"].lower()
     assert 'rtdetr' in model_arch or 'yolo' in model_arch
     
@@ -162,33 +169,48 @@ def parse_cmd_args()->tuple[str, dict, dict]:
     
     check = confirm(
         modelarch=model_arch, args=path_args, 
-        train_args=train_args
+        train_args=train_args, only_valid=only_valid
     )
     
     if not check:
         print("Abort.")
         sys.exit(0)
     
-    return model_arch, path_args, train_args
+    return model_arch, path_args, train_args, only_valid
    
 def main():
 
-    model_arch, args, train_args = parse_cmd_args()
+    model_arch, args, train_args, only_valid = parse_cmd_args()
     
-    ultra_model = get_pretrained_ulra_model(
-        arch = model_arch, 
-        ckpt = None if not args['resume'] \
-            else Path(args['project'])/args['name']/"weights"/"last.pt"
-    )
+    ckpt = None
     if args['resume']:
-        ultra_model.train(resume=True)
-    else:
-        train_ultra_model(
-            ultra_model = ultra_model, 
-            data_cfg = args["data_config"], 
-            project = args['project'], name = args['name'],
-            **train_args
+        ckpt = Path(args['project'])/args['name']/"weights"/"last.pt"
+    elif only_valid:
+        ckpt = Path(args['project'])/args['name']/"weights"/"best.pt"
+    
+    ultra_model = get_pretrained_ulra_model(arch = model_arch, ckpt = ckpt)
+
+    if only_valid:
+        val_ultra_model(
+            ultra_model=ultra_model, data_cfg=args['data_config'],                
+            project= args['project'], name = args['name'],
+            imgsz = train_args['imgsz'],
+            batch =train_args['batch'],
+            device=train_args['device'][0] \
+                if isinstance(train_args['device'], list) \
+                else train_args['device']
         )
+    
+    else:
+        if args['resume']:
+            ultra_model.train(resume=True)
+        else:
+            train_ultra_model(
+                ultra_model = ultra_model, 
+                data_cfg = args["data_config"], 
+                project = args['project'], name = args['name'],
+                **train_args
+            )
     
 
 if __name__ == "__main__":
