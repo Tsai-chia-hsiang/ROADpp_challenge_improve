@@ -23,20 +23,6 @@ from .evaluation import classification as eva_cls
 from torchvision.models.vision_transformer import ViT_B_16_Weights
 from torch.utils.tensorboard import SummaryWriter
 
-
-def ResNeXt101_encoder() -> tuple[torch.nn.Sequential, int]:
-    encoder = models.resnext101_32x8d(pretrained=True)
-    out_f = encoder.fc.in_features
-    return torch.nn.Sequential(*list(encoder.children())[:-1]), out_f
-
-def ViT_encoder(with_head = False)->torch.nn.Module|tuple[torch.nn.Module, ]:
-    model = models.vit_b_16(pretrained=True)
-    if not with_head:
-        return model.encoder
-    return model.encoder, model.heads
-
-EN_MAP ={'resnext101':ResNeXt101_encoder}
-
 def remove_module_prefix(state_dict):
     """
     Remove the 'module.' prefix from the state dictionary keys.
@@ -49,53 +35,21 @@ def remove_module_prefix(state_dict):
             new_state_dict[k] = v
     return new_state_dict
 
-class ReID_Model(torch.nn.Module):
-    
-    def __init__(self, ncls:int, fe:Literal["resnext101"] = "resnext101") -> None:
+
+class _Contrastive_Learning_Model(torch.nn.Module):
+
+    def __init__(self, ncls:int=10, fdim:int=128, **kwargs):
         super().__init__()
-        self.encoder, self.feat_dim = EN_MAP[fe]()
-        
-        self.cls_head = torch.nn.Linear(self.feat_dim, ncls)
-    
-    def forward(self, x:torch.Tensor) -> torch.Tensor:
-        """
-        x : (Nx3, 3, H ,W)
-        Nx3 : [anchor, inter_pos, intra_pos]
-        """
-        ebd = self.encoder(x)
-
-
-class ViT_Cls_Constractive_Model(torch.nn.Module):
-
-    def __init__(self, ncls:int=10) -> None:
-    
-        super().__init__()
-    
         self.ncls = ncls
-        self.backbone:VisionTransformer = models.vit_b_16(
-            weights=ViT_B_16_Weights.DEFAULT
-        )
-        self.fdim = 128
-        self.backbone.heads.head = torch.nn.Linear(self.backbone.heads.head.in_features, ncls)
-        self.feature_net = torch.nn.Sequential(
-            *[
-                torch.nn.Linear(768, 512),
-                torch.nn.ReLU(),
-                torch.nn.Linear(512, 128)
-            ]
-        )
+        self.fdim = fdim
 
-    def forward(self, x:torch.Tensor, with_token:bool=False):
-        out = self.backbone(x, with_token=with_token)
-        if with_token:
-            f = self.feature_net(out[1][:, 0])
-            return out[0], F.normalize(f, p=2, dim=1)
-        return out
-    
+    def forward(self, x:torch.Tensor, **kwargs):
+        raise NotImplementedError()
+  
     @classmethod
-    def build_model(cls, ncls:int, ckpt:Optional[os.PathLike]=None):
-        
-        M = cls(ncls=ncls)
+    def build_model(cls, ckpt:Optional[os.PathLike]=None, **kwargs):
+
+        M = cls(**kwargs)
         if ckpt is not None:
             print(f"load pretrained weights from {ckpt}")
             M.load_state_dict(remove_module_prefix(torch.load(ckpt, map_location="cpu")))
@@ -134,7 +88,7 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         yi:torch.LongTensor = None
 
         for xi, yi in tqdm(loader):
-            _, f = self(xi.to(dev), with_token=True)
+            _, f = self(xi.to(dev), feature=True)
             for li in yi.unique(return_counts=False):
                 ptype[li] += torch.sum(
                     (f[torch.where(yi == li)[0]]/cls_num[li]),
@@ -150,11 +104,11 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         dev:torch.device = torch.device("cpu"), batch:int=50,
         epochs:int=20, warm_up:int=2, val_epochs:int=2,
         optimizer:Literal["adam","adamw", "sgd"]="adamw", lr:int=0.01,
-        contrastive_learning:bool=False,
-        ckpt:Path = Path("vit_cls"),
+        contrastive_learning:bool=False, loss_w:tuple[float, float]=(2, 0.6),
+        ckpt:Path = Path("scl_cls"),
         board:Optional[SummaryWriter]=None,
         debug:int=-1     
-    ) -> Optimizer:
+    ) -> None:
                 
         self.to(device=dev)
         cls_loss = LogitAdjust(cls_num_list=self.ncls, device=dev, weight=torch.log(train_set.cls_w))
@@ -211,9 +165,8 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
                 train_loader=train_loader,optim=optim, dev=dev, 
                 cls_criteria=cls_loss, logger=logger,
                 contrastive_learning=contrastive_learning if e >= warm_up else False,
-                contrastive_criteria=scl_loss,
-                board=board,
-                debug_iter=debug
+                contrastive_criteria=scl_loss,w=loss_w,
+                board=board, debug_iter=debug
             )
             logger.info(f"training loss : ")
             logger.info(f"{loss_log}")
@@ -245,8 +198,6 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
                     
                     torch.save(self.state_dict(), ckpt.parent/f"{ckpt.stem}_no_valid_epoch{e}.pt")
                     best_loss = loss_log['total']
-        
-        return optim
     
     def _train_one_epoch(
         self, train_loader:DataLoader,  logger:Logger,
@@ -266,14 +217,13 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         
         self.train()
         critera_cls, critera_cl, critera_total = 0, 0, 0
-        current_cls, current_cl, current_total = 0, 0, 0
 
         bar = tqdm(train_loader) if pbar else train_loader
         for idx, (img, li) in enumerate(bar):
             optim.zero_grad()
             xi = img.to(device=dev)
             li = li.to(dev)
-            yi, fi = self(xi, with_token=True)
+            yi, fi = self(xi, features=True)
             cls_l = cls_criteria(yi, li)
 
             feature_loss:torch.Tensor = 0.0
@@ -293,13 +243,10 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
                 contrastive_criteria.update_prototype(pnew=fi.detach(),update_cls=li.detach())
         
             if idx % log_freq == 0:
-                current_cls = critera_cls/n_sample
-                loss_info = f"cls_loss: {current_cls:.4f} "
+
+                loss_info = f"cls_loss: {cls_l.item():.4f} "
                 if contrastive_learning:
-                    current_cl = critera_cl/n_sample
-                    current_total = critera_total/n_sample
-                   
-                    loss_info += f"cl_loss: {current_cl:.4f} total_loss: {current_total:.4f}"
+                    loss_info += f"cl_loss: {feature_loss.item():.4f} total_loss: {total_loss.item():.4f}"
                 
                 logger.info(loss_info, extra={'file_only':True})
             
@@ -393,3 +340,55 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
         y = torch.argmax(self(x.unsqueeze(0).to(dev)), dim=1).cpu()
         return y.item()
     
+
+class ResNext101_Cls_contrastive_Model(_Contrastive_Learning_Model):
+    
+    def __init__(self, ncls:int=10, fdim:int=128):
+        super().__init__(ncls=ncls, fdim=fdim)
+        self.backbone = models.resnext101_32x8d(pretrained=True)
+        out_f = self.backbone.fc.in_features
+        self.backbone = torch.nn.Sequential(*list(self.backbone.children())[:-1])
+        self.cls_head = torch.nn.Linear(out_f, self.ncls)
+        self.feature_net = torch.nn.Sequential(
+            *[
+                torch.nn.Linear(out_f, 512), 
+                torch.nn.ReLU(), 
+                torch.nn.BatchNorm1d(512),
+                torch.nn.Linear(512, self.fdim)
+            ]
+        )
+    def forward(self, x:torch.Tensor, features:bool=False) -> torch.Tensor|tuple[torch.Tensor, torch.Tensor]:
+        f0 = self.backbone(x, with_token=features)
+        logit = self.cls_head(f0)
+        if features:
+            f = self.feature_net(f0)
+            return logit, f
+        return logit
+
+
+class ViT_Cls_Constrastive_Model(_Contrastive_Learning_Model):
+
+    def __init__(self, ncls:int=10, fdim:int=128) -> None:
+    
+        super().__init__(ncls=ncls, fdim=fdim)
+
+        self.backbone:VisionTransformer = models.vit_b_16(
+            weights=ViT_B_16_Weights.DEFAULT
+        )
+    
+        self.backbone.heads.head = torch.nn.Linear(self.backbone.heads.head.in_features, ncls)
+        self.feature_net = torch.nn.Sequential(
+            *[
+                torch.nn.Linear(768, 512),
+                torch.nn.ReLU(),
+                torch.nn.BatchNorm1d(512),
+                torch.nn.Linear(512, self.fdim)
+            ]
+        )
+
+    def forward(self, x:torch.Tensor, features:bool=False):
+        out = self.backbone(x, with_token=features)
+        if features:
+            f = self.feature_net(out[1][:, 0])
+            return out[0], F.normalize(f, p=2, dim=1)
+        return out
