@@ -1,14 +1,10 @@
-import os
 import json
 from pathlib import Path
 from argparse import ArgumentParser
-import numpy as np
-import pandas as pd
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import torch
 from torch.utils.data import DataLoader
 from distinguish.dataset import MC_ReID_Features_Dataset
-from distinguish.model import ViT_Cls_Constractive_Model
+from distinguish.model import MODELS, _Contrastive_Learning_Model
 from distinguish.dataset import MC_ReID_Features_Dataset
 from distinguish.loss import set_seed
 from distinguish.log import get_logger, remove_old_tf_evenfile
@@ -38,18 +34,17 @@ def layze_parse_arg():
 
 def test_cls(args, ncls:int=10, mode:str="valid"):
    
-    dev = torch.device(
-        f"cuda:{max(args.device, torch.cuda.device_count()-1)}"
-        if args.device >= 0 else "cpu"
-    )
+    dev = torch.device(f"cuda:{args.device}" if args.device >= 0 else "cpu")
+
     assert args.pretrained is not None
     dset = MC_ReID_Features_Dataset.build_dataset(
         root=Path(args.root)/f"{mode}"
     )
-    model = ViT_Cls_Constractive_Model.build_model(
+    model:_Contrastive_Learning_Model = MODELS[args.model](
         ncls=ncls, ckpt= args.pretrained
     )
     model.to(device=dev)
+
     eva = model.inference_one_epoch(
         inference_loader= DataLoader(
             dataset=dset, batch_size=args.batch_size
@@ -75,10 +70,8 @@ def train_cls(args):
     logger.info(f"{vars(args)}")
     logger.info(f"")
 
-    dev = torch.device(
-        f"cuda:{max(args.device, torch.cuda.device_count()-1)}"
-        if args.device >= 0 else "cpu"
-    )
+    dev = torch.device(f"cuda:{args.device}" if args.device >= 0 else "cpu")
+    
     logger.info(f"Using : {torch.cuda.get_device_properties(dev)}")
     logger.info("") 
     logger.info(f"build training set from {Path(args.root)/'train'}")
@@ -91,10 +84,10 @@ def train_cls(args):
     logger.info(f"validation set class counts : ")
     logger.info(f"{valid_dataset.cls_count.tolist()}")
     logger.info(f"")
-    model = ViT_Cls_Constractive_Model.build_model(
+    model:_Contrastive_Learning_Model = MODELS[args.model](
         ncls=train_dataset.ncls,
         ckpt= args.pretrained
-    )
+    ) 
     
     board = SummaryWriter(args.ckpt)
     model.train_model(
@@ -104,18 +97,6 @@ def train_cls(args):
         ckpt = args.ckpt/"cls_vit", val_epochs = args.valid_epochs, 
         logger=logger, board=board, debug=args.debug_iter       
     )
-    """
-    logger.info("with contrastive learning ..")
-    model.train_model(
-        train_set=train_dataset, valid_set=valid_dataset, dev=dev, 
-        batch=args.batch_size, epochs=args.epochs - args.warmup_epochs, 
-        shared_optimizer=current_opt,
-        scl_loss=scl, contrastive_learning=True,
-        ckpt = args.ckpt/"cls_vit",
-        logger=logger, board=board,
-        debug=args.debug_iter
-    )
-    """
 
 
 if __name__ == "__main__":
