@@ -9,6 +9,8 @@ roadpp
 *ckpt*
 # test
 test*
+Track1/longtail_cls/ckpt
+Track1/longtail_cls/crop
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

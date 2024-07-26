@@ -19,6 +19,7 @@ from torchvision.models.vision_transformer import VisionTransformer
 from .scheduling import adjust_lr
 from .loss import LogitAdjust, SCL
 from .dataset import MC_ReID_Features_Dataset
+from .evaluation import classification as eva_cls
 from torchvision.models.vision_transformer import ViT_B_16_Weights
 from torch.utils.tensorboard import SummaryWriter
 
@@ -303,11 +304,11 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
                 logger.info(loss_info, extra={'file_only':True})
             
                 if board is not None:
-                    board.add_scalar("cls_loss",current_cls, epoch * len(train_loader) + idx)
+                    board.add_scalar("cls_loss",cls_l.item(), epoch * len(train_loader) + idx)
                     if contrastive_learning:
                         
-                        board.add_scalar("constrastive_loss", current_cl, epoch * len(train_loader) + idx)
-                        board.add_scalar("total_loss",current_total, epoch * len(train_loader) + idx)
+                        board.add_scalar("constrastive_loss", feature_loss.item(), epoch * len(train_loader) + idx)
+                        board.add_scalar("total_loss",total_loss.item(), epoch * len(train_loader) + idx)
 
             if pbar:
                 bar.set_postfix(
@@ -336,11 +337,14 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
     @torch.no_grad()
     def inference_one_epoch(
         self, inference_loader:DataLoader, dev:torch.device, 
-        pbar:bool=True, return_pred:bool=True, 
-        cls_loss:Optional[LogitAdjust]=None,
+        pbar:bool=True, return_pred:bool=True, attach_gt:bool=False,
+        confusion_matrix:Optional[Literal["pd", "np"]]=None,
+        metrcs_tolist:bool=False,
         debug_iter:int=-1
     ) -> np.ndarray|dict|tuple[np.ndarray, dict]:
         
+        self.eval()
+
         xi:torch.FloatTensor = None
         gth:list[int] = []
         pred:list[int] = []
@@ -370,17 +374,14 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
             return pred
         
         gth = np.array(gth)
-        
-        f1 = f1_score(gth, pred, average=None)
-        
-        metrics = {
-            'precision':precision_score(gth, pred, average=None),
-            'recall':recall_score(gth, pred, average=None),
-            'f1':f1,
-            'macro f1':np.mean(f1)
-        }
 
+        metrics = eva_cls(
+            pred=pred, gth=gth, cm=confusion_matrix, 
+            to_pydefault_type=metrcs_tolist
+        )
         if return_pred:
+            if attach_gt:
+                return pred, gth, metrics
             return pred, metrics
         
         return metrics
@@ -389,6 +390,6 @@ class ViT_Cls_Constractive_Model(torch.nn.Module):
     def unit_inference(self,x:torch.Tensor,dev:torch.device)->int:
         self.eval()
         self.to(dev)
-        y = torch.argmax(self(x.to(dev)), dim=1).cpu()
+        y = torch.argmax(self(x.unsqueeze(0).to(dev)), dim=1).cpu()
         return y.item()
     
