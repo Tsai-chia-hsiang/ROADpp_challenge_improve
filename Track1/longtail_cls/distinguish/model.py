@@ -41,6 +41,7 @@ class _Contrastive_Learning_Model(torch.nn.Module):
 
     def __init__(self, ncls:int=10, fdim:int=128, **kwargs):
         super().__init__()
+        self.name = ""
         self.ncls = ncls
         self.fdim = fdim
 
@@ -129,7 +130,7 @@ class _Contrastive_Learning_Model(torch.nn.Module):
                 scl_loss.prototype = torch.load(ckpt/f"init_prototype.pt")
         """
         
-        logger.info(f"Training VIT classification model {epochs} epochs with CE ,{'contrastive loss' if contrastive_learning else ''} ")
+        logger.info(f"Training classification {self.name} {epochs} epochs with CE ,{'contrastive loss' if contrastive_learning else ''} ")
         logger.info(f"optimizer : {optimizer} with initial lr {lr}")
         
         optim:Optimizer = self._get_optimizer(opt=optimizer, lr=lr)
@@ -347,6 +348,7 @@ class ResNext101_Cls_contrastive_Model(_Contrastive_Learning_Model):
     
     def __init__(self, ncls:int=10, fdim:int=128):
         super().__init__(ncls=ncls, fdim=fdim)
+        self.name = "resnext101"
         self.backbone = models.resnext101_32x8d(weights = ResNeXt101_32X8D_Weights.DEFAULT)
         out_f = self.backbone.fc.in_features
         self.backbone = torch.nn.Sequential(*list(self.backbone.children())[:-1])
@@ -375,6 +377,7 @@ class ViT_Cls_Constrastive_Model(_Contrastive_Learning_Model):
     
         super().__init__(ncls=ncls, fdim=fdim)
 
+        self.name = "vit"
         self.backbone:VisionTransformer = models.vit_b_16(
             weights=ViT_B_16_Weights.DEFAULT
         )
