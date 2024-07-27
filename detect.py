@@ -350,7 +350,7 @@ def arg_parse():
     parser.add_argument('--model_path', type=str, default='runs/detect/yolov8l_T1_1280_batch_8_/weights/best.pt', help='yolo path')
 
 
-    parser.add_argument('--two_branch', type=bool, default=False, help='used two branch YOLO')
+    parser.add_argument('--two_branch', action='store_true', help='used two branch YOLO')
     parser.add_argument('--major_path', type=str, default='runs/detect/yolov8l_T1_1280_batch_8_/weights/best.pt', help='major_yolo path')
     parser.add_argument('--rare_path', type=str, default='runs/detect/yolov8l_T1_1280_batch_8_/weights/best.pt', help='rare_yolo path')
 
