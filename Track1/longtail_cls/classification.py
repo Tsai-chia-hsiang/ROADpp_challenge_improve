@@ -10,6 +10,12 @@ from distinguish.loss import set_seed
 from distinguish.log import get_logger, remove_old_tf_evenfile
 from torch.utils.tensorboard import SummaryWriter
 
+"""
+python classification.py --operation train valid --model resnext101\
+--root ../../roadpp/crop_vehicle/ --ckpt ./ckpt/vehicle_cls \
+--device 1 --optimizer adam --epochs 100 --batch 40
+"""
+
 def layze_parse_arg():
     """
     My Lam-Par serrrrrrrr
@@ -94,7 +100,7 @@ def train_cls(args):
         train_set=train_dataset, valid_set=valid_dataset, dev=dev, 
         batch=args.batch_size, epochs=args.epochs, warm_up=args.warmup_epochs,
         optimizer=args.optimizer, lr=args.lr, contrastive_learning=True,
-        ckpt = args.ckpt/"cls_vit", val_epochs = args.valid_epochs, 
+        ckpt = args.ckpt/f"{args.model}", val_epochs = args.valid_epochs, 
         logger=logger, board=board, debug=args.debug_iter       
     )
 
