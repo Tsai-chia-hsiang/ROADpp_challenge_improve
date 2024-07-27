@@ -3,13 +3,11 @@ I have modified the code from VisionTransformer forward() founction
 To let it return token if give the argument ```with_token = True``
 """
 import os
-import logging
 from logging import Logger
 from typing import Literal, Optional, Callable, Iterable
 from pathlib import Path
-from tqdm import tqdm, trange
+from tqdm import tqdm
 import numpy as np
-from sklearn.metrics import precision_score, recall_score, f1_score
 import torch
 import torch.nn.functional as F
 from torch.optim import Optimizer, Adam, AdamW, SGD
