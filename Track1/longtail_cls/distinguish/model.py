@@ -340,7 +340,8 @@ class _Contrastive_Learning_Model(torch.nn.Module):
     def unit_inference(self,x:torch.Tensor,dev:torch.device)->int:
         self.eval()
         self.to(dev)
-        y = torch.argmax(self(x.unsqueeze(0).to(dev)), dim=1).cpu()
+        y = self(x.unsqueeze(0).to(dev))
+        y = torch.argmax(y, dim=0).cpu()
         return y.item()
     
 
@@ -399,7 +400,7 @@ class ViT_Cls_Constrastive_Model(_Contrastive_Learning_Model):
             return out[0], F.normalize(f, p=2, dim=1)
         return out
 
-MODELS:dict[str, _Contrastive_Learning_Model] = {
+MODELS:dict[str, Callable[[int, str], _Contrastive_Learning_Model]] = {
     'resnext101':ResNext101_Cls_contrastive_Model.build_model,
     'vit':ViT_Cls_Constrastive_Model.build_model
 }
