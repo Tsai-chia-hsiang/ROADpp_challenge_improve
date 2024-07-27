@@ -70,7 +70,7 @@ class _Contrastive_Learning_Model(torch.nn.Module):
             case _:
                 raise KeyError(f"Not support {opt}")
     
-    @torch.no_grad
+    @torch.no_grad()
     def get_prototype(
         self, dset:MC_ReID_Features_Dataset, 
         batch:int=50, dev:torch.device=torch.device("cpu"),
