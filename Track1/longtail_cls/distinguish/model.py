@@ -169,7 +169,8 @@ class _Contrastive_Learning_Model(torch.nn.Module):
                 cls_criteria=cls_loss, logger=logger,
                 contrastive_learning=contrastive_learning if e >= warm_up else False,
                 contrastive_criteria=scl_loss,w=loss_w,
-                board=board, debug_iter=debug
+                board=board, debug_iter=debug, 
+                epoch=e
             )
             logger.info(f"training loss : ")
             logger.info(f"{loss_log}")
