@@ -114,6 +114,7 @@ class _Contrastive_Learning_Model(torch.nn.Module):
         self.to(device=dev)
         cls_loss = LogitAdjust(cls_num_list=self.ncls, device=dev, weight=torch.log(train_set.cls_w))
         scl_loss = SCL(self.ncls, device=dev, fdim=self.fdim)
+        """
         if warm_up == -1 and debug <= 0:
             logger.info("using pretrained weights to build prototype")
             if not (ckpt/f"init_prototype.pt").is_file():
@@ -126,6 +127,7 @@ class _Contrastive_Learning_Model(torch.nn.Module):
             else:
                 logger.info(f"load from {ckpt/f'init_prototype.pt'}")
                 scl_loss.prototype = torch.load(ckpt/f"init_prototype.pt")
+        """
         
         logger.info(f"Training VIT classification model {epochs} epochs with CE ,{'contrastive loss' if contrastive_learning else ''} ")
         logger.info(f"optimizer : {optimizer} with initial lr {lr}")
@@ -362,7 +364,7 @@ class ResNext101_Cls_contrastive_Model(_Contrastive_Learning_Model):
         logit = self.cls_head(f0)
         if features:
             f = self.feature_net(f0)
-            return logit, f
+            return logit, F.normalize(f, p=2, dim=1)
         return logit
 
 
