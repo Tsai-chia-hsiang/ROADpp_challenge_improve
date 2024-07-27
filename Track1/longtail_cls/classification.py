@@ -71,7 +71,7 @@ def train_cls(args):
     set_seed(args.seed)
     Path(args.ckpt).mkdir(parents=True, exist_ok=True)
     logger = get_logger(name=__name__, file=args.ckpt/"training.log")
-    remove_old_tf_evenfile(args.ckpt)
+    
     logger.info(f"Settings : ")
     logger.info(f"{vars(args)}")
     logger.info(f"")
@@ -90,11 +90,14 @@ def train_cls(args):
     logger.info(f"validation set class counts : ")
     logger.info(f"{valid_dataset.cls_count.tolist()}")
     logger.info(f"")
+    if args.pretrained is not None:
+        logger.info(f"load {args.model} from {args.pretrained}")
     model:_Contrastive_Learning_Model = MODELS[args.model](
         ncls=train_dataset.ncls,
         ckpt= args.pretrained
     ) 
     
+    remove_old_tf_evenfile(args.ckpt)
     board = SummaryWriter(args.ckpt)
     model.train_model(
         train_set=train_dataset, valid_set=valid_dataset, dev=dev, 
