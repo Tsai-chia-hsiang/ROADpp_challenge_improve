@@ -113,7 +113,7 @@ def parse_cmd_args()->tuple[str, dict, dict, bool]:
     parser.add_argument("--lr0", type=float, default=1e-2)
     parser.add_argument("--patience", type=int, default=-1)
     parser.add_argument("--batch", type=int, default=3)
-    parser.add_argument("--optimizer", type=str, default="")
+    parser.add_argument("--optimizer", type=str, default="auto")
     parser.add_argument("--no_deterministic", action='store_false')
     parser.add_argument("--imgsz",type=int, default=1280)
     parser.add_argument("--amp", action='store_true')
@@ -149,13 +149,6 @@ def parse_cmd_args()->tuple[str, dict, dict, bool]:
             
             if k == "device" and len(args[k]) == 1:
                 train_args[k] = args[k][0]
-            
-            if k == "optimizer":
-                if args[k] == "":
-                    if "yolo" in model_arch:
-                        train_args[k] = "Adam"
-                    elif "rtdetr" in model_arch:
-                        train_args[k] = "AdamW"
             
             if k == "patience":
                 if args[k] == -1:
