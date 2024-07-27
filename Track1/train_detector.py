@@ -59,7 +59,6 @@ def val_ultra_model(
     )
 
 
-
 def parse_cmd_args()->tuple[str, dict, dict, bool]:
     
     def confirm(modelarch:str, args:dict, train_args:dict, only_valid:bool) -> bool:
