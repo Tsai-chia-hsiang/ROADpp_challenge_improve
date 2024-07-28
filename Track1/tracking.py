@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 import glob
 from tqdm import tqdm
 from pathlib import Path
@@ -56,7 +57,7 @@ def zip_tube_file(file_path:Path):
 
     
 @torch.no_grad()
-def make_tube(args, tracker, second_cls: Optional[_Contrastive_Learning_Model] = None, cls_map:Optional[dict]=None):
+def make_tube(args, tracker, second_cls: Optional[_Contrastive_Learning_Model] = None, cls_map:Optional[dict]=None, semantic_map:Optional[dict]=None):
     """
     Make submit tube using track algorithm.
     
@@ -168,7 +169,7 @@ def make_tube(args, tracker, second_cls: Optional[_Contrastive_Learning_Model] =
         tube_change_axis(tube_data, args.video_shape, args.submit_shape) # change axis to submit_shape
         tube_data['score'] = np.mean(tube_data['scores'])
         
-        if args.two_stage is not None:
+        if args.two_stage:
             
             if tube_data['label_id'] == cls_map['recls']['src']:
                 re_label = second_cls.unit_inference(
@@ -184,33 +185,19 @@ def make_tube(args, tracker, second_cls: Optional[_Contrastive_Learning_Model] =
             del tube_data['crop']
             gc.collect()
         
+        elif args.two_semantic:
+            tube_data['label_id'] = semantic_map[tube_data['label_id']]
+        
         agent_list.append(tube_data.copy())
     
     return agent_list
 
-def arg_parse():
-    
-    parser = argparse.ArgumentParser()
 
-    parser.add_argument('--mode', type=str, default='Track1', help='detect mode, only accept Track1 or Track2')
-    parser.add_argument('--video_path', type=str, default='./roadpp/test_videos', help='video path')
-    parser.add_argument('--detector', type=str, default="yolo")
-    parser.add_argument('--model_path', type=str, default='./submit/yolo10_e2/yolo.pt', help='yolo path')
-    
-    parser.add_argument("--two_stage", action='store_true')
-    parser.add_argument('--cls_model', type=str, default="resnext101")
-    parser.add_argument('--cls_ckpt', type=Path, default="./longtail_cls/ckpt/cls_veh/resnext101_epoch61.pt")
 
-    parser.add_argument('--devices', nargs='+', type=str, default='0', help='gpu number')
-
-    parser.add_argument('--imgsz', type=tuple, default=(1280, 1280), help='yolo input size')
-    parser.add_argument('--video_shape', type=tuple, default=(1280, 1920), help='original video resolution')
-    parser.add_argument('--submit_shape', type=tuple, default=(600, 840), help='final submit shape')
-    parser.add_argument('--pkl_dir', type=Path, default=Path("./roadpp/submit"), help='submit file name(*.pkl)')
- 
-    opt = parser.parse_args()
-    print(opt)
-    return opt
+DETECTOR = {
+    'yolo':YOLO,
+    'rtdetr':RTDETR
+}
 
 TWO_STAGE_MAP = {
     'map':{
@@ -218,8 +205,8 @@ TWO_STAGE_MAP = {
         1:1,
         2:2,
         3:3,
-        5:7,
-        6:9
+        4:7,
+        5:9
     },
     'recls':{
         'src':4,
@@ -232,40 +219,131 @@ TWO_STAGE_MAP = {
     }
 }
 
+TWO_SEMANTIC_MAP={
+    'veh':{
+        0:4,
+        1:5,
+        2:6,
+        3:8
+    },
+    'other':{
+        0:0,
+        1:1,
+        2:2,
+        3:3,
+        4:7,
+        5:9
+    }
+}
+
+
+
+def arg_parse():
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--detector', type=str, default="yolo")
+    
+    #data and result dir
+    parser.add_argument('--video_path', type=str, default='./roadpp/test_videos', help='video path')
+    parser.add_argument('--pkl_dir', type=Path, default=Path("./roadpp/submit"), help='submit file name(*.pkl)')
+ 
+    # single branch detection
+    parser.add_argument('--model_path', type=str, default='./submit/yolo10_e2/yolo.pt', help='yolo path')    
+    # two stage classification with single branch detection
+    parser.add_argument("--two_stage", action='store_true')
+    parser.add_argument('--cls_model', type=str, default="resnext101")
+    parser.add_argument('--cls_ckpt', type=Path, default="./longtail_cls/ckpt/cls_veh/resnext101_epoch61.pt")
+
+    # two branch detection
+    parser.add_argument("--two_semantic", action='store_ture')
+    parser.add_argument("--veh_model", type=Path)
+    parser.add_argument("--other_model", type=Path)
+    
+
+    parser.add_argument('--devices', nargs='+', type=str, default='0', help='gpu number')
+    parser.add_argument('--imgsz', type=tuple, default=(1280, 1280), help='yolo input size')
+    parser.add_argument('--video_shape', type=tuple, default=(1280, 1920), help='original video resolution')
+    parser.add_argument('--submit_shape', type=tuple, default=(600, 840), help='final submit shape')
+    
+    opt = parser.parse_args()
+    assert args.detector.lower() in DETECTOR
+    assert not (opt.two_stage and opt.two_semantic), "Can only use two stage or two semantic"
+    print(opt)
+    check_cuda()
+    _ = input("OK ?")
+    return opt
+
 
 if __name__ == "__main__":
+    
     args = arg_parse()
-    check_cuda()
-    detector = {"yolo":YOLO,"rtdetr":RTDETR} 
+    args.pkl_dir.mkdir(parents=True, exist_ok=True)
 
     tube = {'agent':{}}
-    det:Model = detector[args.detector](args.model_path)
+    det:Model = None
     second_cls = None
-    if args.two_stage:
-        print(
-            f"using two stage classification for top class {TWO_STAGE_MAP['recls']['src']} using {args.cls_model} : {args.cls_ckpt}"
-        )
-        second_cls = CLS_MODELS[args.cls_model](
-            ckpt = args.cls_ckpt,
-            ncls = len(TWO_STAGE_MAP['recls']['target']),
-        )
+    det_veh:Model = None
+    det_other:Model =None
     
+    print("Loaing ckpt ..")
+    if not args.two_semantic:
+        print(f"single branch {args.detector} from {args.model_path}")
+        shutil.copy(args.model_path, args.pkl_dir/f'{args.detector}.pt')
+        det = DETECTOR[args.detector](args.model_path)
+        
+        if args.two_stage:
+            print(f"using two stage classification for top class {TWO_STAGE_MAP['recls']['src']} using {args.cls_model} : {args.cls_ckpt}")
+            shutil.copy(args.cls_ckpt, args.pkl_dir/f'sec_cls_{args.cls_model}.pt')
+            second_cls = CLS_MODELS[args.cls_model](
+                ckpt = args.cls_ckpt,
+                ncls = len(TWO_STAGE_MAP['recls']['target']),
+            )
+           
+    else:
+        print(f"two branch {args.detector}, veh :{args.veh_model}, other :{args.other_model}")
+        shutil.copy(args.veh_model, args.pkl_dir/f"{args.detector}_veh.pt")
+        shutil.copy(args.other_model, args.pkl_dir/f"{args.detector}_other.pt")
+        det_veh = DETECTOR[args.detector](args.veh_model)
+        det_other = DETECTOR[args.detector](args.other_model)
+         
 
-    args.pkl_dir.mkdir(parents=True, exist_ok=True)
-    
     all_vs = sorted(glob.glob(os.path.join(args.video_path, '*.mp4')))
     for idx, v in enumerate(tqdm(all_vs)):
         video_name = v.split('/')[-1].split('.')[0]
         print(v, video_name)
-        tracker = det.track(     
-            source=v, imgsz=args.imgsz,
-            device=args.devices, stream=True,
-            conf = 0.0, verbose=False
-        )
-        tube['agent'][video_name] = make_tube(
-            args=args, tracker=tracker,
-            second_cls=second_cls, cls_map=TWO_STAGE_MAP
-        )
+        if not args.two_semantic:
+            tracker = det.track(     
+                source=v, imgsz=args.imgsz,
+                device=args.devices, stream=True,
+                conf = 0.0, verbose=False
+            )
+            tube['agent'][video_name] = make_tube(
+                args=args, tracker=tracker,
+                second_cls=second_cls, cls_map=TWO_STAGE_MAP
+            )
+        else:
+            veh_tracker = det_veh.track(     
+                source=v, imgsz=args.imgsz,
+                device=args.devices, stream=True,
+                conf = 0.0, verbose=False
+            )
+            print(f"tracking veh ..")
+            tube_veh = make_tube(
+                args=args, tracker=veh_tracker, 
+                semantic_map=TWO_SEMANTIC_MAP['veh']
+            )
+            other_tracker = det_other.track(
+                source=v, imgsz=args.imgsz,
+                device=args.devices, stream=True,
+                conf = 0.0, verbose=False
+            )
+            print(f"tracking the others ..")
+            tube_other = make_tube(
+                args=args, tracker=other_tracker, 
+                semantic_map=TWO_SEMANTIC_MAP['other']
+            )
+
+            tube['agent'][video_name] = tube_veh + tube_other
     
     tube_file_name = args.pkl_dir/f"{args.pkl_dir.parts[-1]}_tubes.pkl"
     print(f"writing {tube_file_name} ..")
