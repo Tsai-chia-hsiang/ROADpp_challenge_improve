@@ -205,8 +205,8 @@ TWO_STAGE_MAP = {
         1:1,
         2:2,
         3:3,
-        4:7,
-        5:9
+        5:7,
+        6:9
     },
     'recls':{
         'src':4,
@@ -255,7 +255,7 @@ def arg_parse():
     parser.add_argument('--cls_ckpt', type=Path, default="./longtail_cls/ckpt/cls_veh/resnext101_epoch61.pt")
 
     # two branch detection
-    parser.add_argument("--two_semantic", action='store_ture')
+    parser.add_argument("--two_semantic", action='store_true')
     parser.add_argument("--veh_model", type=Path)
     parser.add_argument("--other_model", type=Path)
     
@@ -266,7 +266,7 @@ def arg_parse():
     parser.add_argument('--submit_shape', type=tuple, default=(600, 840), help='final submit shape')
     
     opt = parser.parse_args()
-    assert args.detector.lower() in DETECTOR
+    assert opt.detector.lower() in DETECTOR
     assert not (opt.two_stage and opt.two_semantic), "Can only use two stage or two semantic"
     print(opt)
     check_cuda()
@@ -306,7 +306,7 @@ if __name__ == "__main__":
         det_veh = DETECTOR[args.detector](args.veh_model)
         det_other = DETECTOR[args.detector](args.other_model)
          
-
+    print(args.video_path)
     all_vs = sorted(glob.glob(os.path.join(args.video_path, '*.mp4')))
     for idx, v in enumerate(tqdm(all_vs)):
         video_name = v.split('/')[-1].split('.')[0]
