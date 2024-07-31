@@ -38,7 +38,7 @@ def train_ultra_model(ultra_model:Model, data_cfg:os.PathLike, name:str, project
         shutil.rmtree(model_dir)
     time.sleep(2)
     stdout = sys.stdout
-    with open(model_dir/'train_progress.log', 'w+') as f:
+    with open(project/f'{name}_train_progress.log', 'w+') as f:
         sys.stdout = f
         ultra_model.train(
             data=data_cfg, mode="detect",project=project, name=name,
