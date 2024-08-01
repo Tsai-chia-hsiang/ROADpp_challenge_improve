@@ -19,7 +19,7 @@ def classification(pred:np.ndarray, gth:np.ndarray, to_pydefault_type:bool=False
     if cm is None:
         return metrics
     
-    cm_df = confusion_matrix(y_true=gth, y_pred=pred)    
+    cm_df = confusion_matrix(y_true=gth, y_pred=pred, normalize='pred')    
     match cm:
         case "pd":
             cm_df = pd.DataFrame(
@@ -32,4 +32,5 @@ def classification(pred:np.ndarray, gth:np.ndarray, to_pydefault_type:bool=False
             if to_pydefault_type:
                 cm_df = cm_df.tolist()
     
-    metrics['confusion matrxi'] = cm_df
+    metrics['confusion matrix'] = cm_df
+    return metrics
