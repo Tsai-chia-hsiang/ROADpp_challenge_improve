@@ -7,6 +7,7 @@ from ultralytics.engine.model import Model
 from ultralytics import RTDETR, YOLO
 from pathlib import Path
 import shutil
+import sys
 from argparse import ArgumentParser
 
 MODEL_MAP = {
@@ -36,11 +37,14 @@ def train_ultra_model(ultra_model:Model, data_cfg:os.PathLike, name:str, project
         print(f"rm {model_dir}")
         shutil.rmtree(model_dir)
     time.sleep(2)
-
-    ultra_model.train(
-        data=data_cfg, mode="detect",project=project, name=name,
-        **train_args
-    )
+    stdout = sys.stdout
+    with open(project/f'{name}_train_progress.log', 'w+') as f:
+        sys.stdout = f
+        ultra_model.train(
+            data=data_cfg, mode="detect",project=project, name=name,
+            **train_args
+        )
+    sys.stdout = stdout
 
 @torch.no_grad()
 def val_ultra_model(
@@ -48,15 +52,19 @@ def val_ultra_model(
     project:os.PathLike, name:str, 
     imgsz:int=1280, batch:int=5, device:int|list[int]=0
 ):
+    stdout = sys.stdout
+    with open(project/name/'val_progress.log', 'w+') as f:
+        sys.stdout = f
+        _ = ultra_model.val(
+            data = data_cfg,
+            imgsz = imgsz,
+            device = device,
+            batch = batch,
+            project = project,
+            name = Path(f"{name}")/"valid"
+        )
+    sys.stdout = stdout
 
-    _ = ultra_model.val(
-        data = data_cfg,
-        imgsz = imgsz,
-        device = device,
-        batch = batch,
-        project = project,
-        name = Path(f"{name}")/"valid"
-    )
 
 
 def parse_cmd_args()->tuple[str, dict, dict, bool]:
