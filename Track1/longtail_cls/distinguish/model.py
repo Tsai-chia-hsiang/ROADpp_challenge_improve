@@ -35,7 +35,7 @@ def remove_module_prefix(state_dict):
     return new_state_dict
 
 
-class _Contrastive_Learning_Model(torch.nn.Module):
+class Contrastive_Learning_Tasker():
 
     def __init__(self, ncls:int=10, fdim:int=128, **kwargs):
         super().__init__()
@@ -46,25 +46,16 @@ class _Contrastive_Learning_Model(torch.nn.Module):
     def forward(self, x:torch.Tensor, **kwargs):
         raise NotImplementedError()
   
-    @classmethod
-    def build_model(cls, ckpt:Optional[os.PathLike]=None, **kwargs):
 
-        M = cls(**kwargs)
-        if ckpt is not None:
-            print(f"load pretrained weights from {ckpt}")
-            M.load_state_dict(remove_module_prefix(torch.load(ckpt, map_location="cpu")))
-        
-        return M
-    
-    def _get_optimizer(self, opt:Literal["adam","adamw", "sgd"]="adamw", lr:float=0.01, momentum:float=0.9)->Optimizer:
+    def _get_optimizer(self, model:torch.nn.Module, opt:Literal["adam","adamw", "sgd"]="adamw", lr:float=0.01, momentum:float=0.9)->Optimizer:
 
         match opt.lower():
             case "adam":
-                return Adam(self.parameters(), lr=lr)
+                return Adam(model.parameters(), lr=lr)
             case "adamw":
-                return AdamW(self.parameters(), lr=lr)
+                return AdamW(model.parameters(), lr=lr)
             case "sgd":
-                return SGD(self.parameters(), lr=lr, momentum=momentum)
+                return SGD(model.parameters(), lr=lr, momentum=momentum)
             case _:
                 raise KeyError(f"Not support {opt}")
     
@@ -98,9 +89,9 @@ class _Contrastive_Learning_Model(torch.nn.Module):
         return ptype
 
     def train_model(
-        self, logger:Logger,
+        self, logger:Logger, model:torch.nn.Module,
         train_set:MC_ReID_Features_Dataset, 
-        valid_set:Optional[MC_ReID_Features_Dataset]=None, 
+        valid_set:Optional[MC_ReID_Features_Dataset]=None,
         dev:torch.device = torch.device("cpu"), batch:int=50,
         epochs:int=20, warm_up:int=2, val_epochs:int=2,
         optimizer:Literal["adam","adamw", "sgd"]="adamw", lr:int=0.01,
@@ -109,8 +100,9 @@ class _Contrastive_Learning_Model(torch.nn.Module):
         board:Optional[SummaryWriter]=None,
         debug:int=-1     
     ) -> None:
-                
-        self.to(device=dev)
+        if torch.cuda.device_count() > 1:
+            print(f"Let's use {torch.cuda.device_count()} GPUs!")
+      
         cls_loss = LogitAdjust(cls_num_list=self.ncls, device=dev, weight=torch.log(train_set.cls_w))
         scl_loss = SCL(self.ncls, device=dev, fdim=self.fdim)
         """
@@ -131,7 +123,7 @@ class _Contrastive_Learning_Model(torch.nn.Module):
         logger.info(f"Training classification {self.name} {epochs} epochs with CE ,{'contrastive loss' if contrastive_learning else ''} ")
         logger.info(f"optimizer : {optimizer} with initial lr {lr}")
         
-        optim:Optimizer = self._get_optimizer(opt=optimizer, lr=lr)
+        optim:Optimizer = self._get_optimizer(model=model, opt=optimizer, lr=lr)
         
         train_loader = DataLoader(
             dataset=train_set, 
@@ -164,7 +156,9 @@ class _Contrastive_Learning_Model(torch.nn.Module):
                 logger.info(f"training epoch {e}, with contrastive learning")
 
             loss_log = self._train_one_epoch(
-                train_loader=train_loader,optim=optim, dev=dev, 
+                model=model,
+                train_loader=train_loader,
+                optim=optim, dev=dev, 
                 cls_criteria=cls_loss, logger=logger,
                 contrastive_learning=contrastive_learning if e >= warm_up else False,
                 contrastive_criteria=scl_loss,w=loss_w,
@@ -177,6 +171,7 @@ class _Contrastive_Learning_Model(torch.nn.Module):
                 
                 logger.info(f"validation epoch {e}")
                 valid_log = self.inference_one_epoch(
+                    model=model, 
                     inference_loader=valid_loader,
                     dev=dev, return_pred=False,
                     debug_iter=debug
@@ -191,19 +186,19 @@ class _Contrastive_Learning_Model(torch.nn.Module):
                     save_to = ckpt.parent/f'{ckpt.stem}_epoch{e}.pt'
                     logger.info(f"current best valid f1:{best_f1}; new best valid f1:{valid_log['macro f1']}")
                     logger.info(f"save weights to {save_to}")
-                    torch.save(self.state_dict(), save_to)
+                    torch.save(model.module.state_dict(), save_to)
                     best_f1 = valid_log['macro f1']
                 
             else:
                 if (e+1)%val_epochs == 0 and loss_log['total'] <= best_loss:
                     logger.info(f"current best loss:{best_loss}; new best loss:{loss_log['total']}")
                     logger.info(f"save weights to {save_to}")
-                    
-                    torch.save(self.state_dict(), ckpt.parent/f"{ckpt.stem}_no_valid_epoch{e}.pt")
+                    torch.save(model.module.state_dict(), save_to)
                     best_loss = loss_log['total']
     
     def _train_one_epoch(
-        self, train_loader:DataLoader,  logger:Logger,
+        self, model:torch.nn.Module, 
+        train_loader:DataLoader,  logger:Logger,
         optim:Optimizer, dev:torch.device, cls_criteria:LogitAdjust, 
         contrastive_learning:bool=False, contrastive_criteria:Optional[SCL]=None, 
         w:Iterable[float]=(2, 0.6), pbar:bool=True, board:Optional[SummaryWriter]=None, 
@@ -218,7 +213,7 @@ class _Contrastive_Learning_Model(torch.nn.Module):
         n_sample = 0
         log_freq = len(train_loader) // log_batch_num
         
-        self.train()
+        model.train()
         critera_cls, critera_cl, critera_total = 0, 0, 0
 
         bar = tqdm(train_loader) if pbar else train_loader
@@ -226,7 +221,7 @@ class _Contrastive_Learning_Model(torch.nn.Module):
             optim.zero_grad()
             xi = img.to(device=dev)
             li = li.to(dev)
-            yi, fi = self(xi, features=True)
+            yi, fi = model(xi, features=True)
             cls_l = cls_criteria(yi, li)
 
             feature_loss:torch.Tensor = 0.0
@@ -284,22 +279,21 @@ class _Contrastive_Learning_Model(torch.nn.Module):
     
     @torch.no_grad()
     def inference_one_epoch(
-        self, inference_loader:DataLoader, dev:torch.device, 
+        self, model:torch.nn.Module, 
+        inference_loader:DataLoader, dev:torch.device, 
         pbar:bool=True, return_pred:bool=True, attach_gt:bool=False,
         confusion_matrix:Optional[Literal["pd", "np"]]=None,
         metrcs_tolist:bool=False,
         debug_iter:int=-1
     ) -> np.ndarray|dict|tuple[np.ndarray, dict]:
-        
-        self.eval()
 
+        model.eval()
         xi:torch.FloatTensor = None
         gth:list[int] = []
         pred:list[int] = []
         
         bar = tqdm(inference_loader) if pbar else inference_loader
         inference_flage=False
-        self.eval()
         for idx, i in enumerate(bar):
             if len(i) == 2:
                 # validation 
@@ -310,7 +304,7 @@ class _Contrastive_Learning_Model(torch.nn.Module):
                 inference_flage = True
                 xi = i.to(dev)
 
-            pred += torch.argmax(self(xi), dim=1).cpu().tolist()
+            pred += torch.argmax(model(xi), dim=1).cpu().tolist()
             
             if debug_iter > 0:
                 if idx == debug_iter:
@@ -327,26 +321,27 @@ class _Contrastive_Learning_Model(torch.nn.Module):
             pred=pred, gth=gth, cm=confusion_matrix, 
             to_pydefault_type=metrcs_tolist
         )
+
         if return_pred:
             if attach_gt:
                 return pred, gth, metrics
             return pred, metrics
-        
         return metrics
 
     @torch.no_grad()
-    def unit_inference(self,x:torch.Tensor,dev:torch.device)->int:
-        self.eval()
-        self.to(dev)
-        y = self(x.unsqueeze(0).to(dev))
+    def unit_inference(self, model:torch.nn.Module,x:torch.Tensor,dev:torch.device)->int:
+        model.eval().to(dev)
+        y = model(x.unsqueeze(0).to(dev))
         y = torch.argmax(y, dim=0).cpu()
         return y.item()
     
 
-class ResNext101_Cls_contrastive_Model(_Contrastive_Learning_Model):
+class ResNext101_Feature_Model(torch.nn.Module):
     
     def __init__(self, ncls:int=10, fdim:int=128):
-        super().__init__(ncls=ncls, fdim=fdim)
+        super().__init__()
+        self.ncls = ncls
+        self.fdim = fdim
         self.name = "resnext101"
         self.backbone = models.resnext101_32x8d(weights = ResNeXt101_32X8D_Weights.DEFAULT)
         out_f = self.backbone.fc.in_features
@@ -369,7 +364,7 @@ class ResNext101_Cls_contrastive_Model(_Contrastive_Learning_Model):
             return logit, F.normalize(f, p=2, dim=1)
         return logit
 
-
+"""
 class ViT_Cls_Constrastive_Model(_Contrastive_Learning_Model):
 
     def __init__(self, ncls:int=10, fdim:int=128) -> None:
@@ -401,4 +396,5 @@ class ViT_Cls_Constrastive_Model(_Contrastive_Learning_Model):
 MODELS:dict[str, Callable[[int, str], _Contrastive_Learning_Model]] = {
     'resnext101':ResNext101_Cls_contrastive_Model.build_model,
     'vit':ViT_Cls_Constrastive_Model.build_model
-}
+}        
+"""

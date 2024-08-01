@@ -1,10 +1,11 @@
 import json
 from pathlib import Path
+import torch.nn as nn
 from argparse import ArgumentParser
 import torch
 from torch.utils.data import DataLoader
 from distinguish.dataset import MC_ReID_Features_Dataset
-from distinguish.model import MODELS, _Contrastive_Learning_Model
+from distinguish.model import Contrastive_Learning_Tasker, ResNext101_Feature_Model
 from distinguish.dataset import MC_ReID_Features_Dataset
 from distinguish.loss import set_seed
 from distinguish.log import get_logger, remove_old_tf_evenfile
@@ -38,33 +39,34 @@ def layze_parse_arg():
     args = parser.parse_args()
     return args
 
-def test_cls(args, ncls:int=10, mode:str="valid"):
+def test_cls(args, ckpt:Path, mode:str="valid"):
    
     dev = torch.device(f"cuda:{args.device}" if args.device >= 0 else "cpu")
 
-    assert args.pretrained is not None
     dset = MC_ReID_Features_Dataset.build_dataset(
         root=Path(args.root)/f"{mode}"
     )
-    model:_Contrastive_Learning_Model = MODELS[args.model](
-        ncls=ncls, ckpt= args.pretrained
-    )
-    model.to(device=dev)
-
-    eva = model.inference_one_epoch(
+    model = ResNext101_Feature_Model(ncls=dset.ncls)
+    model.load_state_dict(torch.load(ckpt, map_location="cpu"))
+    model.eval().to(device=dev)
+    tasker=Contrastive_Learning_Tasker(dset.ncls)
+    
+    eva = tasker.inference_one_epoch(
+        model=model,
         inference_loader= DataLoader(
             dataset=dset, batch_size=args.batch_size
         ),
         return_pred=False, metrcs_tolist=True, confusion_matrix="pd",
         dev=dev
     )
-    with open(args.ckpt/f"valid_metrics.json", "w+") as f:
+    print(eva)
+    with open(args.pretrained.parent/f"valid_metrics.json", "w+") as f:
         json.dump(
             {k:v for k, v in eva.items() if k != "confusion matrix"}, 
             f, indent=4, ensure_ascii=False
         )
     
-    eva['confusion matrix'].to_csv(args.ckpt/'confusion_matrix.csv', index=False)
+    eva['confusion matrix'].to_csv(args.pretrained.parent/'confusion_matrix.csv', index=False)
 
 def train_cls(args):
     
@@ -76,7 +78,7 @@ def train_cls(args):
     logger.info(f"{vars(args)}")
     logger.info(f"")
 
-    dev = torch.device(f"cuda:{args.device}" if args.device >= 0 else "cpu")
+    dev = torch.device(f"cuda" if args.device >= 0 else "cpu")
     
     logger.info(f"Using : {torch.cuda.get_device_properties(dev)}")
     logger.info("") 
@@ -92,30 +94,37 @@ def train_cls(args):
     logger.info(f"")
     if args.pretrained is not None:
         logger.info(f"load {args.model} from {args.pretrained}")
-    model:_Contrastive_Learning_Model = MODELS[args.model](
-        ncls=train_dataset.ncls,
-        ckpt= args.pretrained
-    ) 
-    
+ 
+    model= ResNext101_Feature_Model(ncls=train_dataset.ncls)
+    model.to(device=dev)
+    model = nn.DataParallel(model)
+
     remove_old_tf_evenfile(args.ckpt)
     board = SummaryWriter(args.ckpt)
-    model.train_model(
+    tasker = Contrastive_Learning_Tasker(ncls=train_dataset.ncls)
+    tasker.train_model(
+        model=model, 
         train_set=train_dataset, valid_set=valid_dataset, dev=dev, 
         batch=args.batch_size, epochs=args.epochs, warm_up=args.warmup_epochs,
         optimizer=args.optimizer, lr=args.lr, contrastive_learning=True,
         ckpt = args.ckpt/f"{args.model}", val_epochs = args.valid_epochs, 
         logger=logger, board=board, debug=args.debug_iter       
     )
+    return args.ckpt/f"{args.model}"
 
 
 if __name__ == "__main__":
     
     args = layze_parse_arg()
-    
+    ckpt = None
     if 'train' in args.operation:
         print("train")
-        train_cls(args=args)
+        ckpt = train_cls(args=args)
     
     if 'valid' in args.operation:
         print("valid")
-        test_cls(args=args, mode='valid')
+        test_cls(
+            args=args, 
+            ckpt=ckpt if ckpt is not None else args.pretrained, 
+            mode='valid'
+        )

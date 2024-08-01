@@ -9,7 +9,7 @@ def numerical_stable(logits:torch.Tensor) -> torch.Tensor:
     logits_max, _ = torch.max(logits, dim=1, keepdim=True)
     return logits - logits_max.detach()
 
-class LogitAdjust(Callable):
+class LogitAdjust(torch.nn.Module):
 
     def __init__(self, cls_num_list:torch.Tensor, tau=1, weight=None, device:torch.device=torch.device("cpu")):
         super().__init__()
@@ -23,7 +23,7 @@ class LogitAdjust(Callable):
         x_m = x + self.m_list
         return F.cross_entropy(x_m, target, weight=self.weight)
     
-class SCL(Callable):
+class SCL(torch.nn.Module):
 
     def __init__(self, ncls:int, temperature=0.1, device=torch.device("cpu"), ema_alpha:float=0.99, fdim:int=768):
         
